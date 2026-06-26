@@ -11,6 +11,7 @@
 // ============================================================================
 
 import { create } from "zustand";
+import { persist, createJSONStorage } from "zustand/middleware";
 import type { Field, StructModel, Version } from "@/types";
 
 // Basit benzersiz id üretici (alanlar ve versiyonlar için).
@@ -34,6 +35,10 @@ interface StructState {
   currentModel: StructModel;
   /** Kaydedilmiş versiyonlar (v1, v2, ...). (B yönetir.) */
   versions: Version[];
+  /** Karşılaştırmanın KAYNAK tarafı (From): seçili versiyon (null = en son). */
+  baseVersionId: string | null;
+  /** Karşılaştırmanın HEDEF tarafı (To): seçili versiyon (null = güncel düzenlemeler). */
+  targetVersionId: string | null;
 
   // --- PERSON A action'ları (currentModel düzenleme) ---
   setModel: (model: StructModel) => void;
@@ -46,11 +51,23 @@ interface StructState {
   // --- PERSON B action'ları (versiyon yönetimi) ---
   saveVersion: () => void;
   loadVersion: (versionId: string) => void;
+  /** Karşılaştırma kaynağını (From) seç (null = en son kaydedilen versiyon). */
+  setBaseVersion: (versionId: string | null) => void;
+  /** Karşılaştırma hedefini (To) seç (null = güncel düzenlemeler). */
+  setTargetVersion: (versionId: string | null) => void;
+  /** Bir versiyonun görünen etiketini değiştir. */
+  renameVersion: (versionId: string, label: string) => void;
+  /** Bir versiyonu sil; taban olarak seçiliyse seçimi temizle. */
+  deleteVersion: (versionId: string) => void;
 }
 
-export const useStructStore = create<StructState>((set, get) => ({
+export const useStructStore = create<StructState>()(
+  persist(
+    (set, get) => ({
   currentModel: initialModel,
   versions: [],
+  baseVersionId: null,
+  targetVersionId: null,
 
   // -------------------------------------------------------------------------
   // PERSON A — currentModel düzenleme action'ları
@@ -119,4 +136,122 @@ export const useStructStore = create<StructState>((set, get) => ({
       if (!v) return {};
       return { currentModel: structuredClone(v.model) };
     }),
-}));
+
+  setBaseVersion: (versionId) => set({ baseVersionId: versionId }),
+
+  setTargetVersion: (versionId) => set({ targetVersionId: versionId }),
+
+  renameVersion: (versionId, label) =>
+    set((s) => ({
+      versions: s.versions.map((v) =>
+        v.id === versionId ? { ...v, label } : v
+      ),
+    })),
+
+  deleteVersion: (versionId) =>
+    set((s) => ({
+      versions: s.versions.filter((v) => v.id !== versionId),
+      baseVersionId:
+        s.baseVersionId === versionId ? null : s.baseVersionId,
+      targetVersionId:
+        s.targetVersionId === versionId ? null : s.targetVersionId,
+    })),
+    }),
+    {
+      name: "struct-memory-lab",
+      storage: createJSONStorage(() => localStorage),
+      // Sadece veriyi sakla (action'lar her açılışta yeniden oluşturulur).
+      partialize: (state) => ({
+        currentModel: state.currentModel,
+        versions: state.versions,
+        baseVersionId: state.baseVersionId,
+        targetVersionId: state.targetVersionId,
+      }),
+      // Next.js hydration uyumsuzluğunu önlemek için mount sonrası elle rehydrate.
+      skipHydration: true,
+    }
+  )
+);
+
+// ----------------------------------------------------------------------------
+// Karşılaştırma çözümleme.
+//   Sentinel: bir taraf bir versiyon yerine "güncel düzenlemeler" olabilir.
+// ----------------------------------------------------------------------------
+export const CURRENT_EDITS = "__current__";
+
+export interface ResolvedComparison {
+  fromModel: StructModel | undefined;
+  fromLabel: string;
+  fromValue: string; // From dropdown value (versiyon id ya da CURRENT_EDITS)
+  fromVersionId: string | undefined; // satır vurgusu için (güncel ise undefined)
+  toModel: StructModel | undefined;
+  toLabel: string;
+  toValue: string;
+  toVersionId: string | undefined;
+}
+
+/**
+ * From/To seçimlerini gerçek modellere çözer.
+ *  • From: CURRENT_EDITS = güncel · versiyon id = o versiyon · null = en son versiyon (varsayılan).
+ *  • To:   null = güncel düzenlemeler · versiyon id = o versiyon.
+ */
+export function resolveComparison(
+  versions: Version[],
+  currentModel: StructModel,
+  baseVersionId: string | null,
+  targetVersionId: string | null
+): ResolvedComparison {
+  const latest = versions[versions.length - 1];
+
+  // --- From ---
+  let fromModel: StructModel | undefined;
+  let fromLabel: string;
+  let fromValue: string;
+  let fromVersionId: string | undefined;
+  if (baseVersionId === CURRENT_EDITS) {
+    fromModel = currentModel;
+    fromLabel = "current edits";
+    fromValue = CURRENT_EDITS;
+    fromVersionId = undefined;
+  } else {
+    const picked = baseVersionId
+      ? versions.find((v) => v.id === baseVersionId)
+      : undefined;
+    const eff = picked ?? latest;
+    fromModel = eff?.model;
+    fromLabel = eff?.label ?? "";
+    fromValue = eff?.id ?? CURRENT_EDITS;
+    fromVersionId = eff?.id;
+  }
+
+  // --- To ---
+  const target = targetVersionId
+    ? versions.find((v) => v.id === targetVersionId)
+    : undefined;
+  let toModel: StructModel | undefined;
+  let toLabel: string;
+  let toValue: string;
+  let toVersionId: string | undefined;
+  if (target) {
+    toModel = target.model;
+    toLabel = target.label;
+    toValue = target.id;
+    toVersionId = target.id;
+  } else {
+    toModel = currentModel;
+    toLabel = "current edits";
+    toValue = CURRENT_EDITS;
+    toVersionId = undefined;
+  }
+
+  return {
+    fromModel,
+    fromLabel,
+    fromValue,
+    fromVersionId,
+    toModel,
+    toLabel,
+    toValue,
+    toVersionId,
+  };
+}

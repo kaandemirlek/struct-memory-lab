@@ -1,7 +1,7 @@
 // WarningsPanel.tsx  ← PERSON B
 "use client";
 
-import { useStructStore } from "@/store/useStructStore";
+import { useStructStore, resolveComparison } from "@/store/useStructStore";
 import { analyzeCompatibility } from "@/engine/compatibility";
 import type { WarningSeverity } from "@/types";
 import Panel from "@/components/ui/Panel";
@@ -15,17 +15,26 @@ const STYLES: Record<WarningSeverity, string> = {
 export default function WarningsPanel() {
   const versions = useStructStore((s) => s.versions);
   const current = useStructStore((s) => s.currentModel);
+  const baseVersionId = useStructStore((s) => s.baseVersionId);
+  const targetVersionId = useStructStore((s) => s.targetVersionId);
 
-  const last = versions[versions.length - 1];
-  // analyzeCompatibility uses computeLayout internally (mock for now).
-  const warnings = last ? analyzeCompatibility(last.model, current) : [];
+  // Uses the same From/To selection chosen in the Changes panel.
+  const cmp = resolveComparison(versions, current, baseVersionId, targetVersionId);
+  const warnings =
+    cmp.fromModel && cmp.toModel
+      ? analyzeCompatibility(cmp.fromModel, cmp.toModel)
+      : [];
 
   return (
     <Panel
       title="Compatibility"
-      description="Risks introduced by changes since the latest version."
+      description={
+        versions.length > 0
+          ? `Risks going from ${cmp.fromLabel} to ${cmp.toLabel}.`
+          : "Risks introduced by changes between two versions."
+      }
     >
-      {!last ? (
+      {versions.length === 0 ? (
         <p className="text-sm text-muted">
           Save a version first to check compatibility.
         </p>
@@ -36,7 +45,7 @@ export default function WarningsPanel() {
           {warnings.map((w, i) => (
             <li
               key={i}
-              className={`rounded-lg border px-3 py-2 text-sm ${STYLES[w.severity]}`}
+              className={`break-words rounded-lg border px-3 py-2 text-sm ${STYLES[w.severity]}`}
             >
               {w.message}
             </li>

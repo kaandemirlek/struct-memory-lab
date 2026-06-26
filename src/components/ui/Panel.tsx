@@ -22,7 +22,7 @@ export default function Panel({
         <div className="min-w-0">
           <h2 className="text-sm font-semibold tracking-tight">{title}</h2>
           {description && (
-            <p className="mt-0.5 text-xs text-muted">{description}</p>
+            <p className="mt-0.5 break-words text-xs text-muted">{description}</p>
           )}
         </div>
         {actions && <div className="flex shrink-0 gap-2">{actions}</div>}

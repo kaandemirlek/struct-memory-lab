@@ -1,32 +1,68 @@
 // ============================================================================
-// compatibility.ts  ← PERSON B   (⚠️ A'nın computeLayout'una bağlı)
+// compatibility.ts  ← PERSON B
 // ============================================================================
 // GÖREV: İki versiyon arası TEHLİKELİ değişiklikleri tespit et → Warning[].
-// Örnek: "health alanı offset 8 → 16'ya kaydı", "boyut 12 → 16 oldu".
+//   • Ortak bir alanın offset'i kaydıysa            → danger (binary kırar)
+//   • Bir alan tamamen silindiyse                    → danger
+//   • Toplam boyut (sizeof) değiştiyse               → warning
+//   • Struct hizalaması (alignment) değiştiyse       → warning
 //
-// BAĞIMLILIK: offset'lerin kaydığını görmek için computeLayout gerekir.
-//   • A'nın gerçek versiyonu gelene kadar layout.mock'tan gelen sahte
-//     fonksiyonu kullan (aşağıdaki import'a bak).
-//   • A'nınki bittiğinde import'u "@/engine/layout" olarak değiştir — tek satır.
+// A'nın gerçek computeLayout'u hazır olduğu için artık mock yerine onu
+// kullanıyoruz (planlanan "tek satırlık import değişimi").
+// Çağıran isterse 3. argümanla kendi layout fonksiyonunu geçebilir.
 // ============================================================================
 
-import type { AnalyzeCompatibility } from "@/types";
-
-// 🔁 GEÇİCİ: A'nın computeLayout'u gelene kadar mock kullan.
-// A bitirince şununla değiştir:  import { computeLayout } from "@/engine/layout";
-import { computeLayout } from "@/engine/layout.mock";
+import type { AnalyzeCompatibility, Warning } from "@/types";
+import { computeLayout } from "@/engine/layout";
 
 export const analyzeCompatibility: AnalyzeCompatibility = (
   a,
   b,
-  layoutFn = computeLayout // çağıran isterse gerçek fonksiyonu geçebilir
+  layoutFn = computeLayout
 ) => {
-  // TODO (PERSON B): gerçek uyumluluk analizini yaz.
-  //  1. layoutFn(a) ve layoutFn(b) hesapla.
-  //  2. Ortak alanların offset'lerini karşılaştır → kaymış olanlar danger.
-  //  3. totalSize değiştiyse uyar.
-  void a;
-  void b;
-  void layoutFn;
-  return [];
+  const warnings: Warning[] = [];
+  const before = layoutFn(a);
+  const after = layoutFn(b);
+
+  const beforeById = new Map(before.fields.map((f) => [f.fieldId, f]));
+  const afterById = new Map(after.fields.map((f) => [f.fieldId, f]));
+
+  // Ortak alanlarda offset kayması — serileştirme/binary okuyucuları kırar.
+  for (const [id, fa] of beforeById) {
+    const fb = afterById.get(id);
+    if (fb && fa.offset !== fb.offset) {
+      warnings.push({
+        severity: "danger",
+        message: `Field "${fb.name}" moved from offset ${fa.offset} to ${fb.offset}.`,
+      });
+    }
+  }
+
+  // Silinen alanlar — o alanı okuyan kod kırılır.
+  for (const [id, fa] of beforeById) {
+    if (!afterById.has(id)) {
+      warnings.push({
+        severity: "danger",
+        message: `Field "${fa.name}" was removed.`,
+      });
+    }
+  }
+
+  // Toplam boyut değişimi — dosya/buffer boyutu varsayımlarını bozar.
+  if (before.totalSize !== after.totalSize) {
+    warnings.push({
+      severity: "warning",
+      message: `Struct size changed from ${before.totalSize} to ${after.totalSize} bytes.`,
+    });
+  }
+
+  // Hizalama değişimi — dizilerde/ABI'de hizalama sorunlarına yol açabilir.
+  if (before.alignment !== after.alignment) {
+    warnings.push({
+      severity: "warning",
+      message: `Struct alignment changed from ${before.alignment} to ${after.alignment} bytes.`,
+    });
+  }
+
+  return warnings;
 };

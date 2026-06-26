@@ -1,3 +1,4 @@
+import StoreHydration from "@/components/StoreHydration";
 import ImportBox from "@/components/ImportBox";
 import FieldEditor from "@/components/FieldEditor";
 import LayoutVisualizer from "@/components/LayoutVisualizer";
@@ -9,6 +10,7 @@ import ExportBox from "@/components/ExportBox";
 export default function Home() {
   return (
     <div className="min-h-screen">
+      <StoreHydration />
       <header className="sticky top-0 z-10 border-b border-border bg-background/80 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center gap-3 px-6 py-3">
           <div className="grid h-7 w-7 place-items-center rounded-md bg-accent text-xs font-bold text-accent-foreground">

@@ -18,6 +18,6 @@ export function modelsEqual(a: StructModel, b: StructModel): boolean {
 
 /** Bir versiyonu kısa, okunur biçimde özetler (panelde göstermek için). */
 export function summarizeVersion(v: Version): string {
-  // TODO (PERSON B): istersen tarih biçimlendir, alan sayısı ekle, vb.
-  return `${v.label} — ${v.model.fields.length} alan`;
+  const count = v.model.fields.length;
+  return `${v.label} — ${count} ${count === 1 ? "field" : "fields"}`;
 }

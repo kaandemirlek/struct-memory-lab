@@ -3,34 +3,46 @@
 
 import { useStructStore } from "@/store/useStructStore";
 import { diffVersions } from "@/engine/diff";
+import type { DiffKind } from "@/types";
+import Panel from "@/components/ui/Panel";
+
+const KIND_LABEL: Record<DiffKind, string> = {
+  added: "Added",
+  removed: "Removed",
+  "type-changed": "Type",
+  renamed: "Renamed",
+  reordered: "Reordered",
+};
 
 export default function DiffView() {
   const versions = useStructStore((s) => s.versions);
   const current = useStructStore((s) => s.currentModel);
 
-  // En son kaydedilen versiyon ile şu anki modeli karşılaştır (başlangıç davranışı).
+  // Compare the latest saved version with the current working model.
   const last = versions[versions.length - 1];
   const entries = last ? diffVersions(last.model, current) : [];
 
   return (
-    <section className="rounded-lg border border-black/10 dark:border-white/15 p-4">
-      <h2 className="font-semibold mb-2">🔀 Diff (Person B)</h2>
+    <Panel
+      title="Changes"
+      description="Differences between the latest version and your current edits."
+    >
       {!last ? (
-        <p className="text-sm opacity-60">Karşılaştırmak için önce bir versiyon kaydet.</p>
+        <p className="text-sm text-muted">Save a version first to compare changes.</p>
       ) : entries.length === 0 ? (
-        <p className="text-sm opacity-60">
-          {last.label} ile güncel arasında değişiklik yok (ya da diffVersions henüz boş).
-        </p>
+        <p className="text-sm text-muted">No changes since {last.label}.</p>
       ) : (
-        <ul className="space-y-1 text-sm">
+        <ul className="space-y-1.5 text-sm">
           {entries.map((e, i) => (
-            <li key={i}>
-              <span className="font-mono opacity-70">[{e.kind}]</span> {e.detail}
+            <li key={i} className="flex items-center gap-2">
+              <span className="rounded bg-surface-muted px-1.5 py-0.5 text-xs font-medium text-muted">
+                {KIND_LABEL[e.kind] ?? e.kind}
+              </span>
+              <span>{e.detail}</span>
             </li>
           ))}
         </ul>
       )}
-      {/* TODO (PERSON B): hangi iki versiyonun karşılaştırılacağını seçtir. */}
-    </section>
+    </Panel>
   );
 }

@@ -2,6 +2,8 @@
 "use client";
 
 import { useStructStore } from "@/store/useStructStore";
+import Panel from "@/components/ui/Panel";
+import Button from "@/components/ui/Button";
 
 export default function VersionPanel() {
   const versions = useStructStore((s) => s.versions);
@@ -9,33 +11,36 @@ export default function VersionPanel() {
   const loadVersion = useStructStore((s) => s.loadVersion);
 
   return (
-    <section className="rounded-lg border border-black/10 dark:border-white/15 p-4">
-      <h2 className="font-semibold mb-2">📌 Versions (Person B)</h2>
-
-      <button
-        onClick={saveVersion}
-        className="mb-3 rounded bg-foreground text-background px-3 py-1.5 text-sm font-medium"
-      >
-        💾 Versiyon kaydet
-      </button>
-
+    <Panel
+      title="Versions"
+      description="Save snapshots of the struct as it evolves."
+      actions={
+        <Button variant="primary" onClick={saveVersion}>
+          Save version
+        </Button>
+      }
+    >
       {versions.length === 0 ? (
-        <p className="text-sm opacity-60">Henüz versiyon yok.</p>
+        <p className="text-sm text-muted">
+          No versions yet. Save one to start tracking changes.
+        </p>
       ) : (
-        <ul className="space-y-1">
+        <ul className="space-y-1.5">
           {versions.map((v) => (
             <li key={v.id}>
               <button
                 onClick={() => loadVersion(v.id)}
-                className="w-full text-left rounded border border-black/10 dark:border-white/15 px-2 py-1 text-sm hover:bg-black/5 dark:hover:bg-white/10"
+                className="flex w-full items-center justify-between rounded-lg border border-border px-3 py-2 text-sm transition-colors hover:bg-surface-muted"
               >
-                {v.label} · {v.model.fields.length} alan
+                <span className="font-medium">{v.label}</span>
+                <span className="text-xs text-muted">
+                  {v.model.fields.length} fields
+                </span>
               </button>
             </li>
           ))}
         </ul>
       )}
-      {/* TODO (PERSON B): seçili versiyonu vurgula, sil/yeniden adlandır ekle. */}
-    </section>
+    </Panel>
   );
 }

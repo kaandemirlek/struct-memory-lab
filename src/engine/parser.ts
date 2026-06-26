@@ -1,33 +1,61 @@
 // ============================================================================
 // parser.ts  ← PERSON A
 // ============================================================================
-// GÖREV: Yapıştırılan C++ struct metnini okuyup StructModel üret.
-// Önce sabit genişlikli tiplerle başla (uint32_t, bool, float, double, ...).
+// Yapıştırılan C++ struct metnini StructModel'e çevirir (computeLayout'un
+// beslendiği yapı). 3 katman: (1) bloğu bul, (2) gövdeyi alanlara böl,
+// (3) her alanı tip+isim+[dizi]'ye ayrıştır.
 //
-// Örnek girdi:
-//   struct Player {
-//       uint32_t id;
-//       bool alive;
-//       double health;
-//   };
+// Hata durumunda anlaşılır bir Error fırlatır; ImportBox bunu yakalayıp gösterir.
+// Kapsam: sabit genişlikli tipler (TYPE_INFO), tekil ve dizi alanlar.
+//   Desteklenmeyen: pointer, nested struct, bit-field, #pragma pack.
 // ============================================================================
 
-import type { ParseCpp } from "@/types";
+import type { ParseCpp, Field, CppPrimitive } from "@/types";
+import { TYPE_INFO } from "@/types";
 import { makeId } from "@/store/useStructStore";
 
+// Bir string geçerli bir CppPrimitive mi? (TYPE_INFO'yu güvenlik kapısı yapıyoruz.)
+const isPrimitive = (t: string): t is CppPrimitive => t in TYPE_INFO; 
+
+// // satır yorumlarını ve /* ... */ blok yorumlarını siler.
+const stripComments = (s: string): string =>
+  s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+
+// "uint8_t name[16]" → tip, isim, opsiyonel dizi uzunluğu
+const FIELD_RE = /^([A-Za-z_]\w*)\s+([A-Za-z_]\w*)\s*(?:\[\s*(\d+)\s*\])?$/;
+
 export const parseCpp: ParseCpp = (code) => {
-  // TODO (PERSON A): gerçek parse mantığını yaz.
-  //  1. "struct <isim> { ... }" bloğunu yakala (regex iyi bir başlangıç).
-  //  2. Her satırı "<tip> <isim>;" veya "<tip> <isim>[N];" olarak ayrıştır.
-  //  3. Tipi CppPrimitive ile doğrula, dizi uzunluğunu çıkar.
-  //  4. Her alana makeId("f") ile stabil bir id ver.
-  //
-  // Şimdilik boş bir iskelet döndürüyoruz ki uygulama çökmeden çalışsın.
-  void code;
-  return {
-    name: "Parsed",
-    fields: [
-      { id: makeId("f"), name: "TODO_parseCpp", type: "int32_t", arrayLength: 1 },
-    ],
-  };
+  const clean = stripComments(code);
+
+  // Katman 1: struct <isim> { <gövde> }
+  const block = clean.match(/struct\s+([A-Za-z_]\w*)\s*\{([\s\S]*?)\}/);
+  if (!block) {
+    throw new Error('Geçerli bir struct bulunamadı. Örnek: "struct Ad { ... };"');
+  }
+  const [, name, body] = block;
+
+  // Katman 2 + 3: gövdeyi ';' ile böl, her parçayı ayrıştır.
+  const fields: Field[] = [];
+  for (const raw of body.split(";")) {
+    const decl = raw.trim();
+    if (!decl) continue; // boş parça (örn. son ';' sonrası)
+
+    const m = decl.match(FIELD_RE);
+    if (!m) {
+      throw new Error(`Alan çözümlenemedi: "${decl}"  (beklenen: "tip isim;" )`);
+    }
+    const [, type, fieldName, len] = m;
+    if (!isPrimitive(type)) {
+      throw new Error(`Bilinmeyen tip: "${type}"  (alan: ${fieldName})`);
+    }
+
+    fields.push({
+      id: makeId("f"),
+      name: fieldName,
+      type,
+      arrayLength: len ? parseInt(len, 10) : 1,
+    });
+  }
+
+  return { name, fields };
 };

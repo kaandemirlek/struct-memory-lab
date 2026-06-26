@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# yerel önizleme yapılandırması (makineye özel mutlak yollar içerir)
+.claude/launch.json

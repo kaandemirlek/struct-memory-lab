@@ -1,6 +1,7 @@
 // DiffView.tsx  ← PERSON B
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import {
   useStructStore,
   resolveComparison,
@@ -30,17 +31,33 @@ export default function DiffView() {
   const entries =
     cmp.fromModel && cmp.toModel ? diffVersions(cmp.fromModel, cmp.toModel) : [];
 
+  // Auto-open when changes appear, auto-close when they're gone; respect manual toggle otherwise.
+  const [open, setOpen] = useState(entries.length > 0);
+  const prevCount = useRef(entries.length);
+  useEffect(() => {
+    if (prevCount.current === 0 && entries.length > 0) setOpen(true);
+    else if (prevCount.current > 0 && entries.length === 0) setOpen(false);
+    prevCount.current = entries.length;
+  }, [entries.length]);
+
+  const summary =
+    versions.length === 0 ? (
+      <span className="text-muted">—</span>
+    ) : entries.length > 0 ? (
+      <span className="rounded-full bg-surface-muted px-2 py-0.5 font-medium text-muted">
+        {entries.length} {entries.length === 1 ? "change" : "changes"}
+      </span>
+    ) : (
+      <span className="text-muted">no changes</span>
+    );
+
   return (
     <Panel
       title="Changes"
-      description="Compare any version (or your current edits) with another."
-      actions={
-        entries.length > 0 ? (
-          <span className="rounded-full bg-surface-muted px-2 py-0.5 text-xs font-medium text-muted">
-            {entries.length} {entries.length === 1 ? "change" : "changes"}
-          </span>
-        ) : undefined
-      }
+      collapsible
+      summary={summary}
+      open={open}
+      onOpenChange={setOpen}
     >
       {versions.length === 0 ? (
         <p className="text-sm text-muted">Save a version first to compare changes.</p>

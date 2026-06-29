@@ -57,9 +57,15 @@ export default function VersionPanel() {
   return (
     <Panel
       title="Versions"
-      description="Left-click a row for From, right-click for To, double-click to rename."
+      collapsible
+      defaultOpen
+      summary={
+        <span className="text-muted">
+          {versions.length} {versions.length === 1 ? "version" : "versions"}
+        </span>
+      }
       actions={
-        <Button variant="primary" onClick={saveVersion}>
+        <Button variant="primary" size="sm" onClick={saveVersion}>
           Save version
         </Button>
       }
@@ -70,6 +76,9 @@ export default function VersionPanel() {
         </p>
       ) : (
         <ul className="space-y-1.5">
+          <li className="mb-1 text-xs text-muted">
+            Left-click a row for From, right-click for To, double-click to rename.
+          </li>
           {versions.map((v) => {
             const isFrom = fromVersionId === v.id;
             const isTo = toVersionId === v.id;

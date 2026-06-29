@@ -1,9 +1,8 @@
-// OptimizerPanel.tsx  ← PERSON B
+// OptimizerPanel.tsx — contextual banner: only shows when reordering saves bytes.
 "use client";
 
 import { useStructStore } from "@/store/useStructStore";
 import { optimizeLayout } from "@/engine/optimizer";
-import Panel from "@/components/ui/Panel";
 import Button from "@/components/ui/Button";
 
 export default function OptimizerPanel() {
@@ -11,39 +10,29 @@ export default function OptimizerPanel() {
   const setModel = useStructStore((s) => s.setModel);
 
   const result = optimizeLayout(model);
-  const improved = result.bytesSaved > 0;
+
+  // Nothing to suggest → render nothing (stay out of the way).
+  if (model.fields.length < 2 || result.bytesSaved <= 0) return null;
 
   return (
-    <Panel
-      title="Optimize"
-      description="Reorder fields by alignment to remove padding."
-    >
-      {model.fields.length < 2 ? (
-        <p className="text-sm text-muted">
-          Add a few fields to see optimization suggestions.
-        </p>
-      ) : improved ? (
-        <div className="space-y-3">
-          <p className="text-sm">
-            Reordering shrinks the struct from{" "}
-            <span className="font-medium">{result.currentSize} B</span> to{" "}
-            <span className="font-medium text-emerald-600 dark:text-emerald-400">
-              {result.optimizedSize} B
-            </span>{" "}
-            <span className="text-muted">(saves {result.bytesSaved} B).</span>
-          </p>
-          <Button
-            variant="primary"
-            onClick={() => setModel(result.optimizedModel)}
-          >
-            Apply suggested order
-          </Button>
-        </div>
-      ) : (
-        <p className="text-sm text-muted">
-          Layout is already optimal — no padding to remove by reordering.
-        </p>
-      )}
-    </Panel>
+    <div className="flex items-center justify-between gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3">
+      <p className="text-sm">
+        Reordering fields saves{" "}
+        <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+          {result.bytesSaved} bytes
+        </span>{" "}
+        <span className="text-muted">
+          ({result.currentSize} → {result.optimizedSize} B).
+        </span>
+      </p>
+      <Button
+        variant="primary"
+        size="sm"
+        className="shrink-0"
+        onClick={() => setModel(result.optimizedModel)}
+      >
+        Apply
+      </Button>
+    </div>
   );
 }

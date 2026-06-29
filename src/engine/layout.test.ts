@@ -98,3 +98,41 @@ describe("computeLayout", () => {
     expect(r.fields).toEqual([]);
   });
 });
+
+describe("computeLayout — nested struct", () => {
+  const vec3: StructModel = {
+    name: "Vec3",
+    fields: [
+      { id: "x", name: "x", type: "float", arrayLength: 1 },
+      { id: "y", name: "y", type: "float", arrayLength: 1 },
+      { id: "z", name: "z", type: "float", arrayLength: 1 },
+    ],
+  };
+
+  it("nested alanın boyutu/hizalaması iç layout'tan (özyineleme) gelir", () => {
+    const m: StructModel = {
+      name: "Player",
+      fields: [
+        { id: "id", name: "id", type: "uint32_t", arrayLength: 1 },
+        { id: "pos", name: "pos", type: "struct", arrayLength: 1, nested: vec3 },
+        { id: "alive", name: "alive", type: "bool", arrayLength: 1 },
+      ],
+    };
+    const r = computeLayout(m);
+    expect(r.fields.map((f) => f.offset)).toEqual([0, 4, 16]);
+    expect(r.fields[1].size).toBe(12); // Vec3 = 3 × float
+    expect(r.fields[1].typeName).toBe("Vec3"); // gösterim etiketi
+    expect(r.totalSize).toBe(20); // 17 → align 4 → 20
+    expect(r.alignment).toBe(4);
+  });
+
+  it("struct dizisi: eleman boyutu = nested totalSize", () => {
+    const m: StructModel = {
+      name: "Path",
+      fields: [{ id: "pts", name: "pts", type: "struct", arrayLength: 3, nested: vec3 }],
+    };
+    const r = computeLayout(m);
+    expect(r.fields[0].size).toBe(36); // 12 × 3
+    expect(r.totalSize).toBe(36);
+  });
+});

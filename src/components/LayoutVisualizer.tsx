@@ -56,10 +56,13 @@ export default function LayoutVisualizer() {
                       background: COLORS[s.colorIndex! % COLORS.length],
                     }}
                     className="flex shrink-0 flex-col items-center justify-center overflow-hidden border-r border-black/10 text-xs text-black last:border-r-0"
-                    title={`${s.name}: offset ${s.offset}, ${s.size} bytes`}
+                    title={`${s.name}: ${s.typeName ?? s.type} — offset ${s.offset}, ${s.size} bytes`}
                   >
                     <span className="max-w-full truncate px-1 font-medium">{s.name}</span>
-                    <span className="opacity-70">{s.size}B</span>
+                    {/* nested için struct adı (Vec3), primitive için boyut */}
+                    <span className="max-w-full truncate px-1 opacity-70">
+                      {s.type === "struct" ? s.typeName : `${s.size}B`}
+                    </span>
                   </div>
                 ) : (
                   <div
@@ -104,6 +107,9 @@ export default function LayoutVisualizer() {
                     style={{ background: COLORS[s.colorIndex! % COLORS.length] }}
                   />
                   {s.name}
+                  {s.type === "struct" && (
+                    <span className="text-muted">:{s.typeName}</span>
+                  )}
                   <span className="text-muted">
                     @{s.offset}·{s.size}B
                   </span>

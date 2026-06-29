@@ -8,14 +8,15 @@
 // "Türet-sonra-çiz" deseni: bu fonksiyon test edilir, bileşen sadece map'ler.
 // ============================================================================
 
-import type { CppPrimitive, LayoutResult } from "@/types";
+import type { FieldType, LayoutResult } from "@/types";
 
 export interface LayoutSegment {
   kind: "field" | "padding";
   offset: number; // banttaki başlangıç byte'ı
   size: number; // kaç byte
   name?: string; // sadece field için
-  type?: CppPrimitive; // sadece field için
+  type?: FieldType; // sadece field için ("struct" olabilir)
+  typeName?: string; // gösterim etiketi ("uint32_t" / "Vec3") — sadece field için
   colorIndex?: number; // sadece field için (kararlı renk seçimi)
 }
 
@@ -38,6 +39,7 @@ export function toSegments(layout: LayoutResult): LayoutSegment[] {
       size: f.size,
       name: f.name,
       type: f.type,
+      typeName: f.typeName,
       colorIndex: colorIndex++,
     });
   }

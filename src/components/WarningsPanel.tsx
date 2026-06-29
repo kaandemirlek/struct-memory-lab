@@ -1,39 +1,87 @@
 // WarningsPanel.tsx  ← PERSON B
 "use client";
 
-import { useStructStore } from "@/store/useStructStore";
-import { analyzeCompatibility } from "@/engine/compatibility";
+import { useStructStore, resolveComparison } from "@/store/useStructStore";
+import {
+  analyzeCompatibility,
+  sortWarnings,
+  summarizeWarnings,
+} from "@/engine/compatibility";
+import type { WarningSeverity } from "@/types";
+import Panel from "@/components/ui/Panel";
 
-const STYLES: Record<string, string> = {
-  danger: "bg-red-500/15 text-red-600 dark:text-red-400",
-  warning: "bg-yellow-500/15 text-yellow-700 dark:text-yellow-400",
-  info: "bg-blue-500/15 text-blue-600 dark:text-blue-400",
+const STYLES: Record<WarningSeverity, string> = {
+  danger: "border-danger/30 bg-danger/10 text-danger",
+  warning: "border-warning/30 bg-warning/10 text-warning",
+  info: "border-info/30 bg-info/10 text-info",
 };
 
 export default function WarningsPanel() {
   const versions = useStructStore((s) => s.versions);
   const current = useStructStore((s) => s.currentModel);
+  const baseVersionId = useStructStore((s) => s.baseVersionId);
+  const targetVersionId = useStructStore((s) => s.targetVersionId);
 
-  const last = versions[versions.length - 1];
-  // analyzeCompatibility, computeLayout'u kendi içinde (şimdilik mock) kullanır.
-  const warnings = last ? analyzeCompatibility(last.model, current) : [];
+  // Uses the same From/To selection chosen in the Changes panel.
+  const cmp = resolveComparison(versions, current, baseVersionId, targetVersionId);
+  const warnings =
+    cmp.fromModel && cmp.toModel
+      ? analyzeCompatibility(cmp.fromModel, cmp.toModel)
+      : [];
+
+  const sorted = sortWarnings(warnings);
+  const summary = summarizeWarnings(warnings);
+
+  // Build the one-line verdict, e.g. "2 breaking · 1 warning".
+  const verdictParts: string[] = [];
+  if (summary.danger)
+    verdictParts.push(`${summary.danger} breaking`);
+  if (summary.warning)
+    verdictParts.push(
+      `${summary.warning} warning${summary.warning > 1 ? "s" : ""}`
+    );
+  if (summary.info)
+    verdictParts.push(`${summary.info} note${summary.info > 1 ? "s" : ""}`);
+  const verdictColor = summary.danger
+    ? "text-danger"
+    : summary.warning
+      ? "text-warning"
+      : "text-info";
 
   return (
-    <section className="rounded-lg border border-black/10 dark:border-white/15 p-4">
-      <h2 className="font-semibold mb-2">⚠️ Compatibility (Person B)</h2>
-      {!last ? (
-        <p className="text-sm opacity-60">Uyarılar için önce bir versiyon kaydet.</p>
+    <Panel
+      title="Compatibility"
+      description={
+        versions.length > 0
+          ? `Risks going from ${cmp.fromLabel} to ${cmp.toLabel}.`
+          : "Risks introduced by changes between two versions."
+      }
+    >
+      {versions.length === 0 ? (
+        <p className="text-sm text-muted">
+          Save a version first to check compatibility.
+        </p>
       ) : warnings.length === 0 ? (
-        <p className="text-sm opacity-60">Uyarı yok (ya da analiz henüz boş).</p>
+        <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">
+          Safe — no compatibility issues.
+        </p>
       ) : (
-        <ul className="space-y-1">
-          {warnings.map((w, i) => (
-            <li key={i} className={`rounded px-2 py-1 text-sm ${STYLES[w.severity]}`}>
-              {w.message}
-            </li>
-          ))}
-        </ul>
+        <>
+          <p className={`mb-2 text-sm font-semibold ${verdictColor}`}>
+            {verdictParts.join(" · ")}
+          </p>
+          <ul className="space-y-1.5">
+            {sorted.map((w, i) => (
+              <li
+                key={i}
+                className={`break-words rounded-lg border px-3 py-2 text-sm ${STYLES[w.severity]}`}
+              >
+                {w.message}
+              </li>
+            ))}
+          </ul>
+        </>
       )}
-    </section>
+    </Panel>
   );
 }

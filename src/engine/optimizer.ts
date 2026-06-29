@@ -1,19 +1,23 @@
 // ============================================================================
-// optimizer.ts  ← PERSON A   (stretch hedef)
+// optimizer.ts
 // ============================================================================
-// Alanları yeniden sıralayarak padding'i en aza indirir.
+// Alanları yeniden sıralayarak padding'i (boşa giden byte) en aza indirir.
 //
 // Sezgi: padding, küçük hizalamalı bir alandan sonra büyük hizalamalı bir alan
-// geldiğinde oluşur (büyük olan hizalı offset'e zıplar, araya boşluk girer).
-// Bunu önlemenin yolu: alanları HİZALAMAYA GÖRE BÜYÜKTEN KÜÇÜĞE dizmek.
-// Böylece her alan, bir öncekinin bittiği yere (çoğunlukla) tam oturur.
+// geldiğinde oluşur. Bunu önlemenin yolu: alanları HİZALAMAYA GÖRE BÜYÜKTEN
+// KÜÇÜĞE dizmek. Saf ve deterministik → test edilebilir; veriyi mutasyona
+// uğratmaz.
 //
-// Saf ve deterministik → test edilebilir. Veriyi mutasyona uğratmaz.
+//   • optimizeStruct (Person A) — yeniden sıralanmış StructModel döndürür.
+//   • optimizeLayout (Person B) — optimizeStruct'ı boyut/kazanç bilgisiyle sarar
+//     (Optimize panelinde "şu kadar byte kazanırsın" göstermek için).
 // ============================================================================
 
-import type { StructModel } from "@/types";
+import type { ComputeLayout, StructModel } from "@/types";
 import { TYPE_INFO } from "@/types";
+import { computeLayout } from "@/engine/layout";
 
+/** Alanları hizalamaya göre büyükten küçüğe dizer (eşitlikte özgün sıra korunur). */
 export function optimizeStruct(model: StructModel): StructModel {
   const fields = model.fields
     .map((f, i) => ({ f, i })) // özgün index'i sakla (stabil sıralama için)
@@ -26,4 +30,32 @@ export function optimizeStruct(model: StructModel): StructModel {
     .map((x) => x.f);
 
   return { ...model, fields };
+}
+
+export interface OptimizationResult {
+  /** Önerilen, yeniden sıralanmış model. */
+  optimizedModel: StructModel;
+  /** Mevcut sıralamanın sizeof'u. */
+  currentSize: number;
+  /** Önerilen sıralamanın sizeof'u. */
+  optimizedSize: number;
+  /** Kazanılan byte (currentSize - optimizedSize, >= 0). */
+  bytesSaved: number;
+}
+
+/** optimizeStruct sonucunu boyut bilgisiyle sarar. layoutFn test için enjekte edilebilir. */
+export function optimizeLayout(
+  model: StructModel,
+  layoutFn: ComputeLayout = computeLayout
+): OptimizationResult {
+  const optimizedModel = optimizeStruct(model);
+  const currentSize = layoutFn(model).totalSize;
+  const optimizedSize = layoutFn(optimizedModel).totalSize;
+
+  return {
+    optimizedModel,
+    currentSize,
+    optimizedSize,
+    bytesSaved: currentSize - optimizedSize,
+  };
 }

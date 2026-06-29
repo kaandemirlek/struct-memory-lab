@@ -1,43 +1,70 @@
 // ExportBox.tsx  ← PERSON B
 "use client";
 
+import { useState } from "react";
 import { useStructStore } from "@/store/useStructStore";
 import { exportCpp } from "@/engine/exporter";
+import { validateStruct } from "@/engine/validation";
+import Panel from "@/components/ui/Panel";
+import Button from "@/components/ui/Button";
 
 export default function ExportBox() {
   const model = useStructStore((s) => s.currentModel);
+  const issues = validateStruct(model);
+  const hasErrors = issues.length > 0;
   const code = exportCpp(model);
+  const [copied, setCopied] = useState(false);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setCopied(false);
+    }
+  };
 
   const download = () => {
     const blob = new Blob([code], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${model.name}.hpp`;
+    a.download = `${model.name.trim() || "Struct"}.hpp`;
     a.click();
     URL.revokeObjectURL(url);
   };
 
   return (
-    <section className="rounded-lg border border-black/10 dark:border-white/15 p-4">
-      <h2 className="font-semibold mb-2">📤 Export (Person B)</h2>
-      <pre className="font-mono text-xs rounded border border-black/10 dark:border-white/15 p-2 overflow-auto">
+    <Panel
+      title="Export"
+      description="Generated C++ header for the current struct."
+      actions={
+        <>
+          <Button variant="secondary" onClick={copy} disabled={hasErrors}>
+            {copied ? "Copied" : "Copy"}
+          </Button>
+          <Button variant="primary" onClick={download} disabled={hasErrors}>
+            Download .hpp
+          </Button>
+        </>
+      }
+    >
+      {hasErrors && (
+        <div className="mb-3 rounded-lg border border-danger/30 bg-danger/10 p-3 text-sm text-danger">
+          <p className="mb-1 font-medium">
+            Fix {issues.length} {issues.length === 1 ? "issue" : "issues"} before exporting:
+          </p>
+          <ul className="list-inside list-disc space-y-0.5">
+            {issues.map((issue, i) => (
+              <li key={i}>{issue.message}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <pre className="overflow-auto rounded-lg border border-border bg-surface-muted p-3 font-mono text-xs leading-relaxed">
         {code}
       </pre>
-      <div className="mt-2 flex gap-2">
-        <button
-          onClick={() => navigator.clipboard.writeText(code)}
-          className="rounded border border-black/15 dark:border-white/20 px-3 py-1.5 text-sm"
-        >
-          Kopyala
-        </button>
-        <button
-          onClick={download}
-          className="rounded bg-foreground text-background px-3 py-1.5 text-sm font-medium"
-        >
-          .hpp indir
-        </button>
-      </div>
-    </section>
+    </Panel>
   );
 }

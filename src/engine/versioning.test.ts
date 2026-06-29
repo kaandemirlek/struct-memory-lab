@@ -1,0 +1,71 @@
+import { describe, it, expect } from "vitest";
+import { modelsEqual, summarizeVersion, timeAgo } from "@/engine/versioning";
+import type { StructModel, Version } from "@/types";
+
+const model = (fields: StructModel["fields"]): StructModel => ({
+  name: "Player",
+  fields,
+});
+
+const version = (label: string, m: StructModel): Version => ({
+  id: label,
+  label,
+  model: m,
+  createdAt: "2026-01-01T00:00:00.000Z",
+});
+
+describe("modelsEqual", () => {
+  it("is true for structurally identical models", () => {
+    const a = model([{ id: "1", name: "id", type: "uint32_t", arrayLength: 1 }]);
+    const b = model([{ id: "1", name: "id", type: "uint32_t", arrayLength: 1 }]);
+    expect(modelsEqual(a, b)).toBe(true);
+  });
+
+  it("is false when a field type differs", () => {
+    const a = model([{ id: "1", name: "id", type: "uint32_t", arrayLength: 1 }]);
+    const b = model([{ id: "1", name: "id", type: "uint16_t", arrayLength: 1 }]);
+    expect(modelsEqual(a, b)).toBe(false);
+  });
+});
+
+describe("summarizeVersion", () => {
+  it("uses the singular noun for a single field", () => {
+    const v = version("v1", model([{ id: "1", name: "id", type: "bool", arrayLength: 1 }]));
+    expect(summarizeVersion(v)).toBe("v1 — 1 field");
+  });
+
+  it("uses the plural noun for multiple fields", () => {
+    const v = version(
+      "v2",
+      model([
+        { id: "1", name: "id", type: "bool", arrayLength: 1 },
+        { id: "2", name: "x", type: "float", arrayLength: 1 },
+      ])
+    );
+    expect(summarizeVersion(v)).toBe("v2 — 2 fields");
+  });
+});
+
+describe("timeAgo", () => {
+  const now = new Date("2026-06-29T12:00:00.000Z");
+
+  it("shows 'just now' for under a minute", () => {
+    expect(timeAgo("2026-06-29T11:59:30.000Z", now)).toBe("just now");
+  });
+
+  it("shows minutes", () => {
+    expect(timeAgo("2026-06-29T11:30:00.000Z", now)).toBe("30m ago");
+  });
+
+  it("shows hours", () => {
+    expect(timeAgo("2026-06-29T09:00:00.000Z", now)).toBe("3h ago");
+  });
+
+  it("shows days", () => {
+    expect(timeAgo("2026-06-27T12:00:00.000Z", now)).toBe("2d ago");
+  });
+
+  it("clamps a future timestamp to 'just now'", () => {
+    expect(timeAgo("2026-06-29T12:05:00.000Z", now)).toBe("just now");
+  });
+});

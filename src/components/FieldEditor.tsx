@@ -4,12 +4,14 @@
 import { useEffect, useState } from "react";
 import {
   DndContext,
+  DragOverlay,
   closestCenter,
   PointerSensor,
   KeyboardSensor,
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragStartEvent,
 } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -19,6 +21,8 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useStructStore } from "@/store/useStructStore";
+import { optimizeStruct } from "@/engine/optimizer";
+import { validateModel } from "@/engine/validate";
 import { TYPE_INFO, type CppPrimitive, type Field } from "@/types";
 
 const TYPES = Object.keys(TYPE_INFO) as CppPrimitive[];
@@ -106,18 +110,28 @@ function StaticFieldRow({ field }: { field: Field }) {
 
 export default function FieldEditor() {
   const model = useStructStore((s) => s.currentModel);
-  const { addField, setStructName, reorderFields } = useStructStore();
+  const { addField, setStructName, reorderFields, setModel } = useStructStore();
+  const issues = validateModel(model);
 
   // dnd-kit sunucuda hydration uyuşmazlığı yaratır → sadece mount sonrası render et.
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
+  // Sürüklenen alanın id'si (DragOverlay'de imleci takip eden kopyayı çizmek için).
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const activeField = model.fields.find((f) => f.id === activeId) ?? null;
+
+  // activationConstraint: 6px hareket etmeden sürükleme başlamaz → tıklama vs
+  // sürükleme ayrımı netleşir (handle'a tıklamak yanlışlıkla drag tetiklemez).
   const sensors = useSensors(
-    useSensor(PointerSensor),
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
+  const handleDragStart = (e: DragStartEvent) => setActiveId(String(e.active.id));
+
   const handleDragEnd = (e: DragEndEvent) => {
+    setActiveId(null);
     const { active, over } = e;
     if (!over || active.id === over.id) return;
     const oldIndex = model.fields.findIndex((f) => f.id === active.id);
@@ -143,7 +157,13 @@ export default function FieldEditor() {
           ))}
         </div>
       ) : (
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
+          onDragCancel={() => setActiveId(null)}
+        >
           <SortableContext
             items={model.fields.map((f) => f.id)}
             strategy={verticalListSortingStrategy}
@@ -154,15 +174,47 @@ export default function FieldEditor() {
               ))}
             </div>
           </SortableContext>
+
+          {/* Sürüklenen satırın imleci takip eden kopyası — net görsel geri bildirim. */}
+          <DragOverlay>
+            {activeField ? (
+              <div className="flex gap-2 items-center rounded border border-black/20 dark:border-white/25 bg-white dark:bg-neutral-900 px-2 py-1 shadow-lg">
+                <span className="opacity-60">
+                  <GripIcon />
+                </span>
+                <span className="flex-1 font-mono text-sm">{activeField.name}</span>
+                <span className="font-mono text-xs opacity-70">{activeField.type}</span>
+              </div>
+            ) : null}
+          </DragOverlay>
         </DndContext>
       )}
 
-      <button
-        onClick={addField}
-        className="mt-3 rounded border border-black/15 dark:border-white/20 px-3 py-1.5 text-sm"
-      >
-        + Alan ekle
-      </button>
+      <div className="mt-3 flex gap-2">
+        <button
+          onClick={addField}
+          className="rounded border border-black/15 dark:border-white/20 px-3 py-1.5 text-sm"
+        >
+          + Alan ekle
+        </button>
+        <button
+          onClick={() => setModel(optimizeStruct(model))}
+          className="rounded border border-black/15 dark:border-white/20 px-3 py-1.5 text-sm"
+          title="Alanları hizalamaya göre dizip padding'i en aza indirir"
+        >
+          ✨ Optimize et
+        </button>
+      </div>
+
+      {issues.length > 0 && (
+        <ul className="mt-3 space-y-1" role="alert">
+          {issues.map((msg, i) => (
+            <li key={i} className="text-xs text-yellow-600 dark:text-yellow-400">
+              ⚠️ {msg}
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }

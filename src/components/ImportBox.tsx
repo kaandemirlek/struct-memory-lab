@@ -1,9 +1,11 @@
-// ImportBox.tsx  ← PERSON A
+// ImportBox.tsx
 "use client";
 
 import { useState } from "react";
 import { useStructStore } from "@/store/useStructStore";
 import { parseCpp } from "@/engine/parser";
+import Panel from "@/components/ui/Panel";
+import Button from "@/components/ui/Button";
 
 const SAMPLE = `struct Player {
     uint32_t id;
@@ -19,32 +21,37 @@ export default function ImportBox() {
   const handleParse = () => {
     try {
       setModel(parseCpp(code));
-      setError(null); // başarılı: önceki hatayı temizle
+      setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Bilinmeyen hata");
+      setError(e instanceof Error ? e.message : "Unknown error");
     }
   };
 
   return (
-    <section className="rounded-lg border border-black/10 dark:border-white/15 p-4">
-      <h2 className="font-semibold mb-2">📥 Import (Person A)</h2>
+    <Panel
+      title="Import"
+      description="Paste a C++ struct to load it into the editor."
+    >
       <textarea
         value={code}
         onChange={(e) => setCode(e.target.value)}
         rows={6}
-        className="w-full font-mono text-sm rounded border border-black/10 dark:border-white/15 bg-transparent p-2"
+        spellCheck={false}
+        className="w-full resize-y rounded-lg border border-border bg-surface-muted p-3 font-mono text-sm outline-none focus:border-accent"
       />
-      <button
-        onClick={handleParse}
-        className="mt-2 rounded bg-foreground text-background px-3 py-1.5 text-sm font-medium"
-      >
-        Parse →
-      </button>
+      <div className="mt-3">
+        <Button variant="primary" onClick={handleParse}>
+          Parse struct
+        </Button>
+      </div>
       {error && (
-        <p className="mt-2 text-sm text-red-500" role="alert">
-          ⚠️ {error}
+        <p
+          className="mt-3 break-words rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger"
+          role="alert"
+        >
+          {error}
         </p>
       )}
-    </section>
+    </Panel>
   );
 }

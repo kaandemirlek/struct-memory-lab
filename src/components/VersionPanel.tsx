@@ -1,14 +1,45 @@
-// VersionPanel.tsx  ← PERSON B
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useStructStore, resolveComparison } from "@/store/useStructStore";
 import { timeAgo } from "@/engine/versioning";
 import Panel from "@/components/ui/Panel";
 import Button from "@/components/ui/Button";
 import { RestoreIcon, PencilIcon, TrashIcon } from "@/components/ui/icons";
 
-export default function VersionPanel() {
+function CompareButton({
+  active,
+  children,
+  onClick,
+}: {
+  active: boolean;
+  children: ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      onDoubleClick={(e) => e.stopPropagation()}
+      className={`h-7 rounded-md px-2 text-[11px] font-semibold transition-colors ${
+        active
+          ? "bg-accent text-accent-foreground"
+          : "text-muted hover:bg-surface-muted hover:text-foreground"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+export default function VersionPanel({
+  collapseAction,
+}: {
+  collapseAction?: ReactNode;
+}) {
   const versions = useStructStore((s) => s.versions);
   const saveVersion = useStructStore((s) => s.saveVersion);
   const loadVersion = useStructStore((s) => s.loadVersion);
@@ -65,9 +96,12 @@ export default function VersionPanel() {
         </span>
       }
       actions={
-        <Button variant="primary" size="sm" onClick={saveVersion}>
-          Save version
-        </Button>
+        <>
+          <Button variant="primary" size="sm" onClick={saveVersion}>
+            Save version
+          </Button>
+          {collapseAction}
+        </>
       }
     >
       {versions.length === 0 ? (
@@ -75,10 +109,7 @@ export default function VersionPanel() {
           No versions yet. Save one to start tracking changes.
         </p>
       ) : (
-        <ul className="space-y-1.5">
-          <li className="mb-1 text-xs text-muted">
-            Left-click a row for From, right-click for To, double-click to rename.
-          </li>
+        <ul className="space-y-2">
           {versions.map((v) => {
             const isFrom = fromVersionId === v.id;
             const isTo = toVersionId === v.id;
@@ -90,34 +121,24 @@ export default function VersionPanel() {
               <li
                 key={v.id}
                 onClick={selectable ? () => setBaseVersion(v.id) : undefined}
-                onDoubleClick={
-                  selectable ? () => startEdit(v.id, v.label) : undefined
-                }
-                onContextMenu={
-                  selectable
-                    ? (e) => {
-                        e.preventDefault();
-                        setTargetVersion(v.id);
-                      }
-                    : undefined
-                }
-                title={
-                  selectable
-                    ? "Left-click: From · Right-click: To · Double-click: rename"
-                    : undefined
-                }
-                className={`flex select-none items-center gap-2 rounded-lg border px-3 py-2 transition-colors ${
-                  selectable ? "cursor-pointer" : ""
+                onDoubleClick={selectable ? () => startEdit(v.id, v.label) : undefined}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  if (selectable) setTargetVersion(v.id);
+                }}
+                title={selectable ? "Left-click: From. Right-click: To." : undefined}
+                className={`rounded-lg border p-2.5 transition-colors ${
+                  selectable ? "cursor-pointer hover:border-accent/50" : ""
                 } ${
                   isFrom
                     ? "border-accent bg-accent/10"
                     : isTo
                       ? "border-emerald-500/50 bg-emerald-500/10"
-                      : "border-border"
+                      : "border-border bg-surface"
                 }`}
               >
                 {isEditing ? (
-                  <div className="relative min-w-0 flex-1">
+                  <div className="space-y-2">
                     <input
                       autoFocus
                       value={draft}
@@ -127,21 +148,24 @@ export default function VersionPanel() {
                         if (e.key === "Enter") commitEdit();
                         if (e.key === "Escape") setEditingId(null);
                       }}
-                      className="w-full rounded border border-border bg-surface-muted py-1 pl-2 pr-24 text-sm outline-none focus:border-accent"
+                      className="w-full rounded-md border border-border bg-surface-muted px-2 py-1.5 text-sm outline-none focus:border-accent"
                     />
-                    {/* Faint inline hints: gray "enter" updates, red "esc" cancels. */}
-                    <div className="pointer-events-none absolute inset-y-0 right-2 flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide">
-                      <span className="rounded bg-foreground/5 px-1.5 py-0.5 text-muted/70">
-                        enter
-                      </span>
-                      <span className="rounded bg-danger/10 px-1.5 py-0.5 text-danger/60">
-                        esc
-                      </span>
+                    <div className="flex justify-end gap-1">
+                      <Button variant="primary" size="sm" onMouseDown={commitEdit}>
+                        Save
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onMouseDown={() => setEditingId(null)}
+                      >
+                        Cancel
+                      </Button>
                     </div>
                   </div>
                 ) : isConfirming ? (
-                  <>
-                    <span className="min-w-0 flex-1 truncate text-sm text-danger">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium text-danger">
                       Delete {v.label}?
                     </span>
                     <div className="flex shrink-0 items-center gap-1">
@@ -160,62 +184,93 @@ export default function VersionPanel() {
                         Cancel
                       </Button>
                     </div>
-                  </>
+                  </div>
                 ) : (
                   <>
-                    <div className="flex min-w-0 flex-1 items-center gap-2 text-sm">
-                      <span className="truncate font-medium">{v.label}</span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setBaseVersion(v.id);
+                      }}
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        startEdit(v.id, v.label);
+                      }}
+                      className="block w-full min-w-0 text-left"
+                      title="Select as From"
+                    >
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span className="min-w-0 truncate text-sm font-semibold">
+                          {v.label}
+                        </span>
+                        {isFrom && (
+                          <span className="rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-accent">
+                            From
+                          </span>
+                        )}
+                        {isTo && (
+                          <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-emerald-600 dark:text-emerald-400">
+                            To
+                          </span>
+                        )}
+                      </span>
                       <span
-                        className="shrink-0 text-xs text-muted"
+                        className="mt-0.5 block text-xs text-muted"
                         title={new Date(v.createdAt).toLocaleString()}
                       >
-                        {v.model.fields.length} fields · {timeAgo(v.createdAt)}
+                        {v.model.fields.length} fields - {timeAgo(v.createdAt)}
                       </span>
-                      {isFrom && (
-                        <span className="shrink-0 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-accent">
+                    </button>
+
+                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                      <div className="inline-flex rounded-lg border border-border bg-surface p-0.5">
+                        <CompareButton
+                          active={isFrom}
+                          onClick={() => setBaseVersion(v.id)}
+                        >
                           From
-                        </span>
-                      )}
-                      {isTo && (
-                        <span className="shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
+                        </CompareButton>
+                        <CompareButton active={isTo} onClick={() => setTargetVersion(v.id)}>
                           To
-                        </span>
-                      )}
-                    </div>
-                    {/* Stop clicks here from also selecting the row. */}
-                    <div
-                      className="flex shrink-0 items-center gap-1"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="text-muted hover:text-foreground"
-                        aria-label="Restore this version into the editor"
-                        title="Restore into editor"
-                        onClick={() => loadVersion(v.id)}
+                        </CompareButton>
+                      </div>
+
+                      <div
+                        className="flex shrink-0 items-center gap-1"
+                        onClick={(e) => e.stopPropagation()}
+                        onDoubleClick={(e) => e.stopPropagation()}
                       >
-                        <RestoreIcon />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="text-muted hover:text-foreground"
-                        aria-label="Rename this version"
-                        title="Rename (or double-click the row)"
-                        onClick={() => startEdit(v.id, v.label)}
-                      >
-                        <PencilIcon />
-                      </Button>
-                      <Button
-                        variant="danger"
-                        size="icon"
-                        aria-label="Delete this version"
-                        title="Delete"
-                        onClick={() => startDelete(v.id)}
-                      >
-                        <TrashIcon />
-                      </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="text-muted hover:text-foreground"
+                          aria-label="Restore this version into the editor"
+                          title="Restore into editor"
+                          onClick={() => loadVersion(v.id)}
+                        >
+                          <RestoreIcon />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="text-muted hover:text-foreground"
+                          aria-label="Rename this version"
+                          title="Rename"
+                          onClick={() => startEdit(v.id, v.label)}
+                        >
+                          <PencilIcon />
+                        </Button>
+                        <Button
+                          variant="danger"
+                          size="icon"
+                          aria-label="Delete this version"
+                          title="Delete"
+                          onClick={() => startDelete(v.id)}
+                        >
+                          <TrashIcon />
+                        </Button>
+                      </div>
                     </div>
                   </>
                 )}

@@ -1,4 +1,3 @@
-// SafetyStatus.tsx — one-line compatibility verdict shown right under the layout.
 "use client";
 
 import { useStructStore, resolveComparison } from "@/store/useStructStore";
@@ -10,7 +9,6 @@ export default function SafetyStatus() {
   const baseVersionId = useStructStore((s) => s.baseVersionId);
   const targetVersionId = useStructStore((s) => s.targetVersionId);
 
-  // Nothing to judge until there's a saved version to compare against.
   if (versions.length === 0) return null;
 
   const cmp = resolveComparison(versions, current, baseVersionId, targetVersionId);
@@ -22,8 +20,8 @@ export default function SafetyStatus() {
 
   if (summary.total === 0) {
     return (
-      <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2.5 text-sm font-medium text-emerald-600 dark:text-emerald-400">
-        Safe — no compatibility issues from {cmp.fromLabel} to {cmp.toLabel}.
+      <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-2.5 text-sm font-medium text-emerald-600 dark:text-emerald-400">
+        Safe - no compatibility issues from {cmp.fromLabel} to {cmp.toLabel}.
       </div>
     );
   }
@@ -41,8 +39,8 @@ export default function SafetyStatus() {
       : "border-info/30 bg-info/10 text-info";
 
   return (
-    <div className={`rounded-xl border px-4 py-2.5 text-sm font-semibold ${color}`}>
-      {parts.join(" · ")} from {cmp.fromLabel} to {cmp.toLabel}
+    <div className={`rounded-lg border px-4 py-2.5 text-sm font-semibold ${color}`}>
+      {parts.join(" - ")} from {cmp.fromLabel} to {cmp.toLabel}
     </div>
   );
 }

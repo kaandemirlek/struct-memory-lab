@@ -122,7 +122,10 @@ export default function FieldEditor() {
 
   // dnd-kit causes a hydration mismatch on the server → render only after mount.
   const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setMounted(true), 0);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const activeField = model.fields.find((f) => f.id === activeId) ?? null;

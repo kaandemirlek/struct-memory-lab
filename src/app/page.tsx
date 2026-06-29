@@ -3,7 +3,7 @@ import ImportBox from "@/components/ImportBox";
 import FieldEditor from "@/components/FieldEditor";
 import LayoutVisualizer from "@/components/LayoutVisualizer";
 import SafetyStatus from "@/components/SafetyStatus";
-import VersionPanel from "@/components/VersionPanel";
+import VersionSidebar from "@/components/VersionSidebar";
 import DiffView from "@/components/DiffView";
 import WarningsPanel from "@/components/WarningsPanel";
 import OptimizerPanel from "@/components/OptimizerPanel";
@@ -14,7 +14,7 @@ export default function Home() {
     <div className="min-h-screen">
       <StoreHydration />
       <header className="sticky top-0 z-10 border-b border-border bg-background/80 backdrop-blur">
-        <div className="mx-auto flex max-w-[1440px] items-center gap-3 px-6 py-3">
+        <div className="flex w-full items-center gap-3 px-4 py-3 sm:px-6 lg:px-8">
           <div className="grid h-7 w-7 place-items-center rounded-md bg-accent text-xs font-bold text-accent-foreground">
             S
           </div>
@@ -33,26 +33,23 @@ export default function Home() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-[1440px] px-6 py-6">
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-          {/* Left — edit the struct. */}
-          <div className="space-y-6 lg:col-span-3">
+      <main className="w-full px-4 py-5 sm:px-6 lg:px-8">
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(280px,360px)_minmax(0,1fr)_auto]">
+          <div className="space-y-5">
             <FieldEditor />
           </div>
 
-          {/* Center — the hero: the big memory layout + a contextual optimize hint. */}
-          <div className="space-y-4 lg:col-span-6">
+          <div className="min-w-0 space-y-4">
             <LayoutVisualizer />
             <SafetyStatus />
+            <div className="grid gap-4 xl:grid-cols-2">
+              <DiffView />
+              <WarningsPanel />
+            </div>
             <OptimizerPanel />
           </div>
 
-          {/* Right — versions and the change/safety analysis. */}
-          <div className="space-y-6 lg:col-span-3">
-            <VersionPanel />
-            <DiffView />
-            <WarningsPanel />
-          </div>
+          <VersionSidebar />
         </div>
       </main>
     </div>

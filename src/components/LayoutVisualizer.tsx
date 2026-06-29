@@ -1,4 +1,3 @@
-// LayoutVisualizer.tsx   (the app's signature visual)
 "use client";
 
 import { useState } from "react";
@@ -7,21 +6,18 @@ import { computeLayout } from "@/engine/layout";
 import { toSegments } from "@/engine/segments";
 import Panel from "@/components/ui/Panel";
 
-// Stable color palette for fields (picked by color index).
 const COLORS = ["#60a5fa", "#34d399", "#f472b6", "#fbbf24", "#a78bfa", "#fb7185"];
 
 export default function LayoutVisualizer() {
   const model = useStructStore((s) => s.currentModel);
   const layout = computeLayout(model);
   const segments = toSegments(layout);
-
-  // Zoom: pixels per byte. Dragging the slider stretches the blocks.
   const [pxPerByte, setPxPerByte] = useState(28);
 
   return (
     <Panel
       title="Memory Layout"
-      description={`size ${layout.totalSize} B · align ${layout.alignment} B · padding ${layout.totalPadding} B`}
+      description={`size ${layout.totalSize} B / align ${layout.alignment} B / padding ${layout.totalPadding} B`}
     >
       {segments.length === 0 ? (
         <p className="text-sm text-muted">Add fields to see the memory layout.</p>
@@ -44,7 +40,6 @@ export default function LayoutVisualizer() {
             <span className="text-xs tabular-nums text-muted">{pxPerByte} px/byte</span>
           </div>
 
-          {/* Band + ruler: horizontally scrollable; widths are byte × zoom. */}
           <div className="overflow-x-auto">
             <div className="flex h-16 w-max overflow-hidden rounded-lg border border-border">
               {segments.map((s, i) =>
@@ -78,7 +73,6 @@ export default function LayoutVisualizer() {
               )}
             </div>
 
-            {/* Offset ruler: each segment's starting byte (same widths). */}
             <div className="mt-1 flex w-max">
               {segments.map((s, i) => (
                 <div
@@ -93,7 +87,6 @@ export default function LayoutVisualizer() {
             </div>
           </div>
 
-          {/* Legend */}
           <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1">
             {segments
               .filter((s) => s.kind === "field")
@@ -105,7 +98,7 @@ export default function LayoutVisualizer() {
                   />
                   {s.name}
                   <span className="text-muted">
-                    @{s.offset}·{s.size}B
+                    @{s.offset}/{s.size}B
                   </span>
                 </span>
               ))}

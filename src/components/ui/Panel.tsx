@@ -58,7 +58,7 @@ export default function Panel({
   if (!collapsible) {
     return (
       <section
-        className={`rounded-xl border border-border bg-surface p-5 shadow-sm ${className}`}
+        className={`rounded-lg border border-border bg-surface p-4 shadow-sm ${className}`}
       >
         <div className="mb-4 flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -75,8 +75,8 @@ export default function Panel({
   }
 
   return (
-    <section className={`rounded-xl border border-border bg-surface shadow-sm ${className}`}>
-      <div className="flex items-center justify-between gap-3 px-5 py-4">
+    <section className={`rounded-lg border border-border bg-surface shadow-sm ${className}`}>
+      <div className="flex items-center justify-between gap-3 px-4 py-3.5">
         <button
           onClick={toggle}
           className="flex min-w-0 flex-1 items-center gap-2 text-left"
@@ -89,7 +89,7 @@ export default function Panel({
         {actions && <div className="flex shrink-0 gap-2">{actions}</div>}
       </div>
       {open && (
-        <div className="border-t border-border px-5 pb-5 pt-4">{children}</div>
+        <div className="border-t border-border px-4 pb-4 pt-3">{children}</div>
       )}
     </section>
   );

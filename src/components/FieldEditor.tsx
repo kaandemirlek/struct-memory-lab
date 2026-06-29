@@ -57,9 +57,19 @@ function FieldRowInner({ field }: { field: Field }) {
       />
       <select
         value={field.type}
-        onChange={(e) => updateField(field.id, { type: e.target.value as CppPrimitive })}
+        onChange={(e) => {
+          const v = e.target.value as CppPrimitive | "struct";
+          if (v === "struct") return; // nested zaten struct; dropdown'dan "struct"a geçiş yok
+          // primitive'e dönüşte iç içe struct verisini temizle (layout/export tutarlı kalsın)
+          updateField(field.id, { type: v, nested: undefined });
+        }}
         className={inputClass}
       >
+        {/* Nested alan: gerçek tipi ("struct") seçili gösterilemediği için struct adını
+            (Vec3) bir option olarak ekle; böylece "bool" yerine doğru tip görünür. */}
+        {field.type === "struct" && (
+          <option value="struct">{field.nested?.name || "struct"}</option>
+        )}
         {TYPES.map((t) => (
           <option key={t} value={t}>
             {t}

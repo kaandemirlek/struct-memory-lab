@@ -20,12 +20,15 @@ export const makeId = (prefix = "id"): string =>
   `${prefix}_${Date.now().toString(36)}_${(_idCounter++).toString(36)}`;
 
 // Uygulama açılışında gösterilecek örnek struct.
+// ÖNEMLİ: başlangıç id'leri SABİT olmalı. makeId() Date.now() kullandığı için
+// sunucu ve tarayıcıda farklı değer üretir → hydration uyuşmazlığı. Çalışma
+// anında (client'ta) eklenen alanlar makeId() kullanabilir, sorun değil.
 const initialModel: StructModel = {
   name: "Player",
   fields: [
-    { id: makeId("f"), name: "id", type: "uint32_t", arrayLength: 1 },
-    { id: makeId("f"), name: "alive", type: "bool", arrayLength: 1 },
-    { id: makeId("f"), name: "health", type: "double", arrayLength: 1 },
+    { id: "f_id", name: "id", type: "uint32_t", arrayLength: 1 },
+    { id: "f_alive", name: "alive", type: "bool", arrayLength: 1 },
+    { id: "f_health", name: "health", type: "double", arrayLength: 1 },
   ],
 };
 

@@ -4,8 +4,6 @@
 import { useState } from "react";
 import { useStructStore } from "@/store/useStructStore";
 import { parseCpp } from "@/engine/parser";
-import Panel from "@/components/ui/Panel";
-import Button from "@/components/ui/Button";
 
 const SAMPLE = `struct Player {
     uint32_t id;
@@ -15,25 +13,38 @@ const SAMPLE = `struct Player {
 
 export default function ImportBox() {
   const [code, setCode] = useState(SAMPLE);
+  const [error, setError] = useState<string | null>(null);
   const setModel = useStructStore((s) => s.setModel);
 
+  const handleParse = () => {
+    try {
+      setModel(parseCpp(code));
+      setError(null); // başarılı: önceki hatayı temizle
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Bilinmeyen hata");
+    }
+  };
+
   return (
-    <Panel
-      title="Import"
-      description="Paste a C++ struct to load it into the editor."
-    >
+    <section className="rounded-lg border border-black/10 dark:border-white/15 p-4">
+      <h2 className="font-semibold mb-2">📥 Import (Person A)</h2>
       <textarea
         value={code}
         onChange={(e) => setCode(e.target.value)}
         rows={6}
-        spellCheck={false}
-        className="w-full resize-y rounded-lg border border-border bg-surface-muted p-3 font-mono text-sm outline-none focus:border-accent"
+        className="w-full font-mono text-sm rounded border border-black/10 dark:border-white/15 bg-transparent p-2"
       />
-      <div className="mt-3">
-        <Button variant="primary" onClick={() => setModel(parseCpp(code))}>
-          Parse struct
-        </Button>
-      </div>
-    </Panel>
+      <button
+        onClick={handleParse}
+        className="mt-2 rounded bg-foreground text-background px-3 py-1.5 text-sm font-medium"
+      >
+        Parse →
+      </button>
+      {error && (
+        <p className="mt-2 text-sm text-red-500" role="alert">
+          ⚠️ {error}
+        </p>
+      )}
+    </section>
   );
 }

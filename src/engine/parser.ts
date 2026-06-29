@@ -21,8 +21,39 @@ const isPrimitive = (t: string): t is CppPrimitive => t in TYPE_INFO;
 const stripComments = (s: string): string =>
   s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
 
-// "uint8_t name[16]" → tip, isim, opsiyonel dizi uzunluğu
-const FIELD_RE = /^([A-Za-z_]\w*)\s+([A-Za-z_]\w*)\s*(?:\[\s*(\d+)\s*\])?$/;
+// "unsigned int score[4]" → tip (çok kelimeli olabilir), isim, opsiyonel dizi.
+// Grup 1 non-greedy → grup 2 her zaman son tanımlayıcıyı (alan adını) yakalar.
+const FIELD_RE = /^([A-Za-z_][\w\s]*?)\s+([A-Za-z_]\w*)\s*(?:\[\s*(\d+)\s*\])?$/;
+
+// Yaygın C++ tip yazımlarını kanonik sabit-genişlikli tipe eşler.
+// Not: long ve arkadaşları platforma bağlı (LP64'te 8, Windows LLP64'te 4 byte);
+// burada 64-bit Unix modelini varsayıyoruz — demo'da bilinçli bir kapsam kararı.
+const ALIASES: Record<string, CppPrimitive> = {
+  "signed char": "int8_t",
+  "unsigned char": "uint8_t",
+  short: "int16_t",
+  "short int": "int16_t",
+  "unsigned short": "uint16_t",
+  "unsigned short int": "uint16_t",
+  int: "int32_t",
+  signed: "int32_t",
+  "signed int": "int32_t",
+  unsigned: "uint32_t",
+  "unsigned int": "uint32_t",
+  long: "int64_t",
+  "long int": "int64_t",
+  "unsigned long": "uint64_t",
+  "unsigned long int": "uint64_t",
+  "long long": "int64_t",
+  "unsigned long long": "uint64_t",
+};
+
+// Ham tip metnini kanonik CppPrimitive'e çevirir; tanınmazsa null.
+function resolveType(raw: string): CppPrimitive | null {
+  const norm = raw.trim().replace(/\s+/g, " ");
+  if (isPrimitive(norm)) return norm; // zaten kanonik (uint32_t, double, ...)
+  return ALIASES[norm] ?? null;
+}
 
 export const parseCpp: ParseCpp = (code) => {
   const clean = stripComments(code);
@@ -44,9 +75,10 @@ export const parseCpp: ParseCpp = (code) => {
     if (!m) {
       throw new Error(`Alan çözümlenemedi: "${decl}"  (beklenen: "tip isim;" )`);
     }
-    const [, type, fieldName, len] = m;
-    if (!isPrimitive(type)) {
-      throw new Error(`Bilinmeyen tip: "${type}"  (alan: ${fieldName})`);
+    const [, rawType, fieldName, len] = m;
+    const type = resolveType(rawType);
+    if (!type) {
+      throw new Error(`Bilinmeyen tip: "${rawType.trim()}"  (alan: ${fieldName})`);
     }
 
     fields.push({

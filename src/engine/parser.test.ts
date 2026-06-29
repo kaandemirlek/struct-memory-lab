@@ -47,7 +47,7 @@ describe("parseCpp", () => {
   });
 
   it("bilinmeyen tipte anlaşılır hata fırlatır", () => {
-    expect(() => parseCpp("struct S { int x; };")).toThrow(/Bilinmeyen tip/);
+    expect(() => parseCpp("struct S { Widget x; };")).toThrow(/Bilinmeyen tip/);
   });
 
   it("struct yoksa hata fırlatır", () => {
@@ -62,5 +62,27 @@ describe("parseCpp", () => {
     // parser'ın ürettiği model, layout için geçerli olmalı.
     const m = parseCpp("struct S { uint32_t id; bool alive; double health; };");
     expect(m.fields).toHaveLength(3);
+  });
+
+  it("yaygın C++ tiplerini kanonik tiplere çevirir (alias)", () => {
+    const m = parseCpp(`struct S {
+      int a;
+      unsigned int b;
+      short c;
+      unsigned long d;
+      char e;
+    };`);
+    expect(m.fields.map((f) => f.type)).toEqual([
+      "int32_t",
+      "uint32_t",
+      "int16_t",
+      "uint64_t",
+      "char",
+    ]);
+  });
+
+  it("çok kelimeli tip + dizi birlikte çalışır", () => {
+    const m = parseCpp("struct S { unsigned int scores[8]; };");
+    expect(m.fields[0]).toMatchObject({ name: "scores", type: "uint32_t", arrayLength: 8 });
   });
 });

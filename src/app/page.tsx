@@ -5,6 +5,7 @@ import LayoutVisualizer from "@/components/LayoutVisualizer";
 import VersionPanel from "@/components/VersionPanel";
 import DiffView from "@/components/DiffView";
 import WarningsPanel from "@/components/WarningsPanel";
+import OptimizerPanel from "@/components/OptimizerPanel";
 import ExportBox from "@/components/ExportBox";
 
 export default function Home() {
@@ -38,6 +39,7 @@ export default function Home() {
             <VersionPanel />
             <DiffView />
             <WarningsPanel />
+            <OptimizerPanel />
             <ExportBox />
           </div>
         </div>

@@ -2,7 +2,11 @@
 "use client";
 
 import { useStructStore, resolveComparison } from "@/store/useStructStore";
-import { analyzeCompatibility } from "@/engine/compatibility";
+import {
+  analyzeCompatibility,
+  sortWarnings,
+  summarizeWarnings,
+} from "@/engine/compatibility";
 import type { WarningSeverity } from "@/types";
 import Panel from "@/components/ui/Panel";
 
@@ -25,6 +29,25 @@ export default function WarningsPanel() {
       ? analyzeCompatibility(cmp.fromModel, cmp.toModel)
       : [];
 
+  const sorted = sortWarnings(warnings);
+  const summary = summarizeWarnings(warnings);
+
+  // Build the one-line verdict, e.g. "2 breaking · 1 warning".
+  const verdictParts: string[] = [];
+  if (summary.danger)
+    verdictParts.push(`${summary.danger} breaking`);
+  if (summary.warning)
+    verdictParts.push(
+      `${summary.warning} warning${summary.warning > 1 ? "s" : ""}`
+    );
+  if (summary.info)
+    verdictParts.push(`${summary.info} note${summary.info > 1 ? "s" : ""}`);
+  const verdictColor = summary.danger
+    ? "text-danger"
+    : summary.warning
+      ? "text-warning"
+      : "text-info";
+
   return (
     <Panel
       title="Compatibility"
@@ -39,18 +62,25 @@ export default function WarningsPanel() {
           Save a version first to check compatibility.
         </p>
       ) : warnings.length === 0 ? (
-        <p className="text-sm text-muted">No compatibility issues detected.</p>
+        <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">
+          Safe — no compatibility issues.
+        </p>
       ) : (
-        <ul className="space-y-1.5">
-          {warnings.map((w, i) => (
-            <li
-              key={i}
-              className={`break-words rounded-lg border px-3 py-2 text-sm ${STYLES[w.severity]}`}
-            >
-              {w.message}
-            </li>
-          ))}
-        </ul>
+        <>
+          <p className={`mb-2 text-sm font-semibold ${verdictColor}`}>
+            {verdictParts.join(" · ")}
+          </p>
+          <ul className="space-y-1.5">
+            {sorted.map((w, i) => (
+              <li
+                key={i}
+                className={`break-words rounded-lg border px-3 py-2 text-sm ${STYLES[w.severity]}`}
+              >
+                {w.message}
+              </li>
+            ))}
+          </ul>
+        </>
       )}
     </Panel>
   );

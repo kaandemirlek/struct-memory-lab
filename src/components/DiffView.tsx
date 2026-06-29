@@ -34,6 +34,13 @@ export default function DiffView() {
     <Panel
       title="Changes"
       description="Compare any version (or your current edits) with another."
+      actions={
+        entries.length > 0 ? (
+          <span className="rounded-full bg-surface-muted px-2 py-0.5 text-xs font-medium text-muted">
+            {entries.length} {entries.length === 1 ? "change" : "changes"}
+          </span>
+        ) : undefined
+      }
     >
       {versions.length === 0 ? (
         <p className="text-sm text-muted">Save a version first to compare changes.</p>

@@ -3,6 +3,7 @@
 
 import { useState } from "react";
 import { useStructStore, resolveComparison } from "@/store/useStructStore";
+import { timeAgo } from "@/engine/versioning";
 import Panel from "@/components/ui/Panel";
 import Button from "@/components/ui/Button";
 import { RestoreIcon, PencilIcon, TrashIcon } from "@/components/ui/icons";
@@ -155,8 +156,11 @@ export default function VersionPanel() {
                   <>
                     <div className="flex min-w-0 flex-1 items-center gap-2 text-sm">
                       <span className="truncate font-medium">{v.label}</span>
-                      <span className="shrink-0 text-xs text-muted">
-                        {v.model.fields.length} fields
+                      <span
+                        className="shrink-0 text-xs text-muted"
+                        title={new Date(v.createdAt).toLocaleString()}
+                      >
+                        {v.model.fields.length} fields · {timeAgo(v.createdAt)}
                       </span>
                       {isFrom && (
                         <span className="shrink-0 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-accent">

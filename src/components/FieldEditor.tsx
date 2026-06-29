@@ -55,17 +55,28 @@ function FieldRowInner({ field }: { field: Field }) {
         onChange={(e) => updateField(field.id, { name: e.target.value })}
         className={`flex-1 ${inputClass}`}
       />
-      <select
-        value={field.type}
-        onChange={(e) => updateField(field.id, { type: e.target.value as CppPrimitive })}
-        className={inputClass}
-      >
-        {TYPES.map((t) => (
-          <option key={t} value={t}>
-            {t}
-          </option>
-        ))}
-      </select>
+      {field.type === "struct" ? (
+        // Nested struct: salt-okunur etiket (primitive dropdown'a sığmaz).
+        // Düzenlemek için C++'ı yeniden parse et. (v2: elle nested düzenleme)
+        <span
+          className={`${inputClass} flex items-center text-muted`}
+          title="Nested struct — C++'ı yeniden parse ederek düzenle"
+        >
+          {field.nested?.name ?? "struct"}
+        </span>
+      ) : (
+        <select
+          value={field.type}
+          onChange={(e) => updateField(field.id, { type: e.target.value as CppPrimitive })}
+          className={inputClass}
+        >
+          {TYPES.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
+        </select>
+      )}
       <button
         onClick={() => removeField(field.id)}
         aria-label={`Remove ${field.name}`}

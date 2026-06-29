@@ -1,42 +1,47 @@
 // ============================================================================
-// layout.ts  ← PERSON A   (⚠️ B'nin compatibility'si buna bağlı — ÖNCE bunu bitir)
+// layout.ts  ← PERSON A   (⚠️ B'nin compatibility'si buna bağlı)
 // ============================================================================
-// GÖREV: StructModel için bellek yerleşimini hesapla.
-//   • Her alanın offset'i
-//   • Hizalama (alignment) için eklenen padding
-//   • toplam boyut (sizeof) ve toplam padding
+// StructModel için C++ bellek yerleşimini hesaplar: her alanın offset'i,
+// hizalama için eklenen padding, toplam boyut (sizeof) ve toplam padding.
 //
-// C++ kuralları (standart-layout, paketlenmemiş):
-//   1. Bir alan, kendi alignment'ının katı olan offset'e yerleşir.
-//      Gerekirse öncesine padding eklenir.
-//   2. Struct'ın alignment'ı = alanların en büyük alignment'ı.
-//   3. Toplam boyut, struct alignment'ının katına yukarı yuvarlanır
-//      (sondaki "tail padding").
+// 4 kural (standart-layout, paketlenmemiş):
+//   1. Boyut    : eleman boyutu × dizi uzunluğu.
+//   2. Hizalama : alan, offset'i kendi align'ının katı olan yere konur.
+//   3. Padding  : hizalamak için araya boş byte eklenir.
+//   4. Tail pad : struct align = max(alan align'ları); toplam boyut buna yuvarlanır.
 //
-// Bu fonksiyon DETERMİNİSTİK olmalı → birim testi yazmak çok kolay.
+// DETERMİNİSTİK → birim testi kolay (bkz. layout.test.ts).
 // ============================================================================
 
 import type { ComputeLayout, FieldLayout } from "@/types";
-import { TYPE_INFO } from "@/types";
+import { TYPE_INFO } from "@/types"; //primitives'in boyut ve hizalama bilgisi -> types'ta tanımlamıştık
 
-const alignUp = (value: number, align: number): number =>
+/** alignUp
+ * value'yu align'ın bir sonraki katına yukarı yuvarlar.
+ * alignUp(5, 8) = 8 · alignUp(8, 8) = 8 · alignUp(0, 8) = 0, alignUp(9, 8) = 16 -> field'ın başlayabileceği offseti verir
+ * (align her zaman 2'nin kuvveti olduğu için bit-maskesiyle de yazılabilir,
+ *  ama bu hali okunması daha kolay.)
+ */
+export const alignUp = (value: number, align: number): number => 
   Math.ceil(value / align) * align;
 
-export const computeLayout: ComputeLayout = (model) => {
-  // TODO (PERSON A): aşağıdaki naif iskeleti gerçek kurallara göre tamamla
-  // ve birim testlerle doğrula. Şu hali çoğu basit durumda çalışır ama
-  // testlerle sağlamlaştır (boş struct, dizi alanlar, vb.).
+
+// computeLayout, StructModel'deki alanların bellek yerleşimini hesaplar ve her alanın offset'ini, padding miktarını, toplam boyutu ve hizalamayı döndürür.
+export const computeLayout: ComputeLayout = (model) => { //types'ta tanımladığımız computeLayout fonksiyonunu burada implement ettik
   const fields: FieldLayout[] = [];
-  let offset = 0;
-  let maxAlign = 1;
+  let offset = 0; // sıfırdan başlar, field yerleştikçe offset ilerler
+  let maxAlign = 1; // struct'ın hizalaması = en büyük alan hizalaması, başlangıçta 1 (bool) ile başlar
 
   for (const f of model.fields) {
-    const info = TYPE_INFO[f.type];
-    const size = info.size * Math.max(1, f.arrayLength);
-    const aligned = alignUp(offset, info.align);
-    const paddingBefore = aligned - offset;
+    // Bir dizinin hizalaması, elemanının hizalamasıyla aynıdır.
+    const { size: elemSize, align } = TYPE_INFO[f.type]; //typeinfo'dan field'ın tipine göre boyut ve hizalama bilgisini alıyoruz
+    const size = elemSize * Math.max(1, f.arrayLength); //arrayfield ise size = elemSize * arrayLength, değilse size = elemSize
 
-    fields.push({
+    // Kural 2 + 3: alanı hizalı offset'e taşı, aradaki boşluğu say.
+    const aligned = alignUp(offset, align);
+    const paddingBefore = aligned - offset; //padding'i hesapla
+
+    fields.push({ //field layout objesi oluştur
       fieldId: f.id,
       name: f.name,
       type: f.type,
@@ -45,13 +50,16 @@ export const computeLayout: ComputeLayout = (model) => {
       paddingBefore,
     });
 
-    offset = aligned + size;
-    maxAlign = Math.max(maxAlign, info.align);
+    offset = aligned + size; //offset'i bir sonraki field için ilerlet
+    maxAlign = Math.max(maxAlign, align); // en büyük hizalamayı güncelle, daha sonra tailpadding için kullanacağız
   }
 
+  // Kural 4: sondaki (tail) padding ile toplam boyutu struct align'ına yuvarla. -> total size, maxAlign'ın katı olacak şekilde alignUp ile yuvarlanır
   const totalSize = alignUp(offset, maxAlign);
-  const totalPadding =
-    totalSize - fields.reduce((sum, f) => sum + (f.size), 0);
+
+  // Toplam padding = ayrılan toplam yer − gerçekten kullanılan byte'lar.
+  const usedBytes = fields.reduce((sum, f) => sum + f.size, 0); //fields'in boyutlarını topla   -> padding = totalSize - usedBytes
+  const totalPadding = totalSize - usedBytes;
 
   return { fields, totalSize, alignment: maxAlign, totalPadding };
 };

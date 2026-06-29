@@ -13,7 +13,17 @@ const SAMPLE = `struct Player {
 
 export default function ImportBox() {
   const [code, setCode] = useState(SAMPLE);
+  const [error, setError] = useState<string | null>(null);
   const setModel = useStructStore((s) => s.setModel);
+
+  const handleParse = () => {
+    try {
+      setModel(parseCpp(code));
+      setError(null); // başarılı: önceki hatayı temizle
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Bilinmeyen hata");
+    }
+  };
 
   return (
     <section className="rounded-lg border border-black/10 dark:border-white/15 p-4">
@@ -25,12 +35,16 @@ export default function ImportBox() {
         className="w-full font-mono text-sm rounded border border-black/10 dark:border-white/15 bg-transparent p-2"
       />
       <button
-        onClick={() => setModel(parseCpp(code))}
+        onClick={handleParse}
         className="mt-2 rounded bg-foreground text-background px-3 py-1.5 text-sm font-medium"
       >
         Parse →
       </button>
-      {/* TODO (PERSON A): parser olgunlaştıkça hata gösterimi ekle. */}
+      {error && (
+        <p className="mt-2 text-sm text-red-500" role="alert">
+          ⚠️ {error}
+        </p>
+      )}
     </section>
   );
 }

@@ -2,9 +2,7 @@ import StoreHydration from "@/components/StoreHydration";
 import HistoryControls from "@/components/HistoryControls";
 import ThemeToggle from "@/components/ThemeToggle";
 import ImportBox from "@/components/ImportBox";
-import FieldEditor from "@/components/FieldEditor";
-import MiddleWorkspace from "@/components/MiddleWorkspace";
-import VersionSidebar from "@/components/VersionSidebar";
+import WorkspaceShell from "@/components/WorkspaceShell";
 import ExportBox from "@/components/ExportBox";
 
 export default function Home() {
@@ -35,15 +33,7 @@ export default function Home() {
       </header>
 
       <main className="w-full px-4 py-5 sm:px-6 lg:px-8">
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(280px,360px)_minmax(0,1fr)_auto]">
-          <div className="space-y-5">
-            <FieldEditor />
-          </div>
-
-          <MiddleWorkspace />
-
-          <VersionSidebar />
-        </div>
+        <WorkspaceShell />
       </main>
     </div>
   );

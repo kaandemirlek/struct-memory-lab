@@ -1,20 +1,24 @@
 "use client";
 
-import { useState } from "react";
 import LayoutVisualizer from "@/components/LayoutVisualizer";
 import OptimizerPanel from "@/components/OptimizerPanel";
 import DiffView from "@/components/DiffView";
 import WarningsPanel from "@/components/WarningsPanel";
 
-type Tab = "edit" | "compare";
+export type WorkspaceTab = "edit" | "compare";
 
-const TABS: { id: Tab; label: string }[] = [
+const TABS: { id: WorkspaceTab; label: string }[] = [
   { id: "edit", label: "Edit Layout" },
   { id: "compare", label: "Compare Versions" },
 ];
 
-export default function MiddleWorkspace() {
-  const [tab, setTab] = useState<Tab>("edit");
+export default function MiddleWorkspace({
+  tab,
+  onTabChange,
+}: {
+  tab: WorkspaceTab;
+  onTabChange: (tab: WorkspaceTab) => void;
+}) {
 
   return (
     <div className="min-w-0 space-y-4">
@@ -23,7 +27,7 @@ export default function MiddleWorkspace() {
           <button
             key={item.id}
             type="button"
-            onClick={() => setTab(item.id)}
+            onClick={() => onTabChange(item.id)}
             className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
               tab === item.id
                 ? "bg-accent text-accent-foreground"
@@ -43,9 +47,9 @@ export default function MiddleWorkspace() {
       ) : (
         <>
           <LayoutVisualizer mode="compare" />
-          <div className="grid items-start gap-4 xl:grid-cols-2">
-            <DiffView />
+          <div className="space-y-4">
             <WarningsPanel />
+            <DiffView />
           </div>
         </>
       )}

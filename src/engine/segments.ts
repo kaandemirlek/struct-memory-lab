@@ -19,6 +19,8 @@ export interface LayoutSegment {
   typeName?: string; // gösterim etiketi ("uint32_t" / "Vec3") — sadece field için
   colorIndex?: number; // sadece field için (kararlı renk seçimi)
   nested?: LayoutResult; // type === "struct" iken iç yerleşim (görselde açmak için)
+  arrayIndex?: number; // dizi elemanıysa 0-tabanlı indeks
+  arrayLength?: number; // ait olduğu field'ın toplam eleman sayısı
 }
 
 export function toSegments(layout: LayoutResult): LayoutSegment[] {
@@ -34,16 +36,23 @@ export function toSegments(layout: LayoutResult): LayoutSegment[] {
         size: f.paddingBefore,
       });
     }
-    segments.push({
-      kind: "field",
-      offset: f.offset,
-      size: f.size,
-      name: f.name,
-      type: f.type,
-      typeName: f.typeName,
-      colorIndex: colorIndex++,
-      nested: f.nested,
-    });
+    const fieldColor = colorIndex++;
+    const arrayLength = Math.max(1, f.arrayLength ?? 1);
+    const elementSize = f.elementSize ?? f.size / arrayLength;
+    for (let arrayIndex = 0; arrayIndex < arrayLength; arrayIndex++) {
+      segments.push({
+        kind: "field",
+        offset: f.offset + arrayIndex * elementSize,
+        size: elementSize,
+        name: f.name,
+        type: f.type,
+        typeName: f.typeName,
+        colorIndex: fieldColor,
+        nested: f.nested,
+        arrayIndex: arrayLength > 1 ? arrayIndex : undefined,
+        arrayLength,
+      });
+    }
   }
 
   // Tail padding: son alanın bittiği yer ile totalSize arasındaki boşluk.

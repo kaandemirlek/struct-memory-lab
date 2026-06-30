@@ -14,8 +14,20 @@
 // compatibility'sinde ele alınacak (Faz 4).
 // ============================================================================
 
-import type { CppPrimitive, Field, StructModel, Warning } from "@/types";
+import type { BitFieldKind, CppPrimitive, Field, StructModel, Warning } from "@/types";
 import { TYPE_INFO } from "@/types";
+
+/** Bir bit-tipi seçilince önerilen varsayılan genişlik (kullanıcı sonra kırpar). */
+export function defaultWidthForKind(kind: BitFieldKind): number {
+  switch (kind) {
+    case "flag":
+      return 1;
+    case "enum":
+      return 2;
+    default:
+      return 4; // uint / int
+  }
+}
 
 const UNSIGNED_INTS = new Set<CppPrimitive>([
   "uint8_t",

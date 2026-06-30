@@ -1,7 +1,7 @@
 // FieldEditor.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -30,6 +30,7 @@ const TYPES = Object.keys(TYPE_INFO) as CppPrimitive[];
 
 const inputClass =
   "min-w-0 rounded-lg border border-border bg-surface-muted px-2 py-1.5 font-mono text-sm outline-none focus:border-accent";
+const subscribeToNothing = () => () => {};
 
 // Drag handle dots (SVG, not font-dependent).
 function GripIcon() {
@@ -76,6 +77,26 @@ function FieldRowInner({ field }: { field: Field }) {
           </option>
         ))}
       </select>
+      <label className="flex items-center gap-1">
+        <span className="text-xs text-muted">×</span>
+        <input
+          type="number"
+          min={1}
+          max={1024}
+          value={field.arrayLength}
+          onChange={(e) =>
+            updateField(field.id, {
+              arrayLength: Math.max(
+                1,
+                Math.min(1024, Math.floor(Number(e.target.value) || 1))
+              ),
+            })
+          }
+          aria-label={`Array length for ${field.name}`}
+          title="Array length"
+          className={`w-16 text-center ${inputClass}`}
+        />
+      </label>
       <button
         onClick={() => removeField(field.id)}
         aria-label={`Remove ${field.name}`}
@@ -131,8 +152,7 @@ export default function FieldEditor() {
   const issues = validateStruct(model);
 
   // dnd-kit causes a hydration mismatch on the server → render only after mount.
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  const mounted = useSyncExternalStore(subscribeToNothing, () => true, () => false);
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const activeField = model.fields.find((f) => f.id === activeId) ?? null;

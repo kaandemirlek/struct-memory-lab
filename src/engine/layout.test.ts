@@ -80,6 +80,8 @@ describe("computeLayout", () => {
     const m = struct(field("uint8_t", "name", 10), field("uint32_t", "score"));
     const r = computeLayout(m);
     expect(r.fields[0].size).toBe(10); // 10 × 1B
+    expect(r.fields[0].arrayLength).toBe(10);
+    expect(r.fields[0].elementSize).toBe(1);
     expect(offsets(m)).toEqual([0, 12]); // score 10→12 (uint32 align 4)
     expect(r.fields[1].paddingBefore).toBe(2);
     expect(r.totalSize).toBe(16);
@@ -133,6 +135,8 @@ describe("computeLayout — nested struct", () => {
     };
     const r = computeLayout(m);
     expect(r.fields[0].size).toBe(36); // 12 × 3
+    expect(r.fields[0].arrayLength).toBe(3);
+    expect(r.fields[0].elementSize).toBe(12);
     expect(r.totalSize).toBe(36);
   });
 });

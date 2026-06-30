@@ -72,12 +72,17 @@ export interface Field {
 // Bit seviyesinde semantik alan (status word yorumu).
 //   Örn: statusWords[0].bit0 -> irCameraFail (0=OK, 1=FAIL)
 // ---------------------------------------------------------------------------
+/** Bir bit diliminin yorumu (tip). float/double yoktur — bitler tamsayı ailesidir. */
+export type BitFieldKind = "flag" | "uint" | "int" | "enum";
+
 export interface BitField {
   id: string;
   name: string; // semantik ad: "irCameraFail", "operationMode"
   wordIndex: number; // dizi/word indeksi (tekil alan için 0)
   startBit: number; // word içinde 0-tabanlı başlangıç biti
   width: number; // bit sayısı (1 = bayrak, >1 = çok-bitli alan)
+  /** Yorum/tip: flag (1b) / uint / int (signed) / enum. */
+  kind?: BitFieldKind;
   /** Değer anlamları: [{value:0,label:"OK"},{value:1,label:"FAIL"}] */
   meanings?: BitMeaning[];
 }
@@ -108,6 +113,10 @@ export interface FieldLayout {
   offset: number;
   /** Bu alanın kapladığı toplam byte (dizi dahil). */
   size: number;
+  /** C/C++ dizi uzunluğu (tekil alan için 1). */
+  arrayLength?: number;
+  /** Dizideki tek bir elemanın byte boyutu. */
+  elementSize?: number;
   /** Bu alandan ÖNCE eklenen padding byte sayısı (hizalama için). */
   paddingBefore: number;
   /** type === "struct" iken iç içe yerleşim (ileride görselde açmak için). */

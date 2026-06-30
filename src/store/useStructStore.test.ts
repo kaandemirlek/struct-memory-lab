@@ -212,6 +212,16 @@ describe("useStructStore — bit field actions", () => {
     expect(bits()[0].width).toBe(1);
   });
 
+  it("addBitField accepts an exact word, bit and width from the visual editor", () => {
+    get().addBitField("sw", { wordIndex: 2, startBit: 7, width: 4 });
+    expect(bits()[0]).toMatchObject({
+      name: "status_2_7",
+      wordIndex: 2,
+      startBit: 7,
+      width: 4,
+    });
+  });
+
   it("updateBitField patches name/position/meanings", () => {
     get().addBitField("sw");
     const id = bits()[0].id;
@@ -231,5 +241,32 @@ describe("useStructStore — bit field actions", () => {
     get().removeBitField("sw", id);
     expect(bits()).toHaveLength(1);
     expect(bits()[0].id).not.toBe(id);
+  });
+
+  it("nested struct içindeki alanın bit'lerini de düzenler (özyinelemeli)", () => {
+    useStructStore.setState({
+      currentModel: {
+        name: "Outer",
+        fields: [
+          {
+            id: "p",
+            name: "pkt",
+            type: "struct",
+            arrayLength: 1,
+            nested: {
+              name: "Inner",
+              fields: [{ id: "isw", name: "flags", type: "uint32_t", arrayLength: 1, bitFields: [] }],
+            },
+          },
+        ],
+      },
+      versions: [],
+      baseVersionId: null,
+      targetVersionId: null,
+    });
+    get().addBitField("isw", { wordIndex: 0, startBit: 3, width: 1 });
+    const innerBits = get().currentModel.fields[0].nested!.fields[0].bitFields!;
+    expect(innerBits).toHaveLength(1);
+    expect(innerBits[0]).toMatchObject({ wordIndex: 0, startBit: 3, width: 1 });
   });
 });

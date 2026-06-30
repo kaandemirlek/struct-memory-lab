@@ -19,6 +19,18 @@ let _idCounter = 0;
 export const makeId = (prefix = "id"): string =>
   `${prefix}_${Date.now().toString(36)}_${(_idCounter++).toString(36)}`;
 
+// Bir alanı id'ye göre ağaçta (nested struct'lar dahil) bulup dönüştürür (immutable).
+// Bit alanları nested struct içindeki alanlarda da düzenlenebilsin diye gerekli.
+function mapFieldById(fields: Field[], id: string, fn: (f: Field) => Field): Field[] {
+  return fields.map((f) => {
+    if (f.id === id) return fn(f);
+    if (f.nested) {
+      return { ...f, nested: { ...f.nested, fields: mapFieldById(f.nested.fields, id, fn) } };
+    }
+    return f;
+  });
+}
+
 // Uygulama açılışında gösterilecek örnek struct.
 // ÖNEMLİ: başlangıç id'leri SABİT olmalı. makeId() Date.now() kullandığı için
 // sunucu ve tarayıcıda farklı değer üretir → hydration uyuşmazlığı. Çalışma
@@ -28,7 +40,21 @@ const initialModel: StructModel = {
   fields: [
     { id: "f_id", name: "id", type: "uint32_t", arrayLength: 1 },
     { id: "f_alive", name: "alive", type: "bool", arrayLength: 1 },
-    { id: "f_health", name: "health", type: "double", arrayLength: 1 },
+    {
+      id: "f_position",
+      name: "position",
+      type: "struct",
+      arrayLength: 1,
+      nested: {
+        name: "Vec3",
+        fields: [
+          { id: "f_position_x", name: "x", type: "float", arrayLength: 1 },
+          { id: "f_position_y", name: "y", type: "float", arrayLength: 1 },
+          { id: "f_position_z", name: "z", type: "float", arrayLength: 1 },
+        ],
+      },
+    },
+    { id: "f_age", name: "age", type: "uint32_t", arrayLength: 5 },
   ],
 };
 
@@ -51,7 +77,10 @@ interface StructState {
   removeField: (id: string) => void;
   reorderFields: (fromIndex: number, toIndex: number) => void;
   // bit alanları (status word semantiği)
-  addBitField: (fieldId: string) => void;
+  addBitField: (
+    fieldId: string,
+    placement?: Partial<Pick<BitField, "wordIndex" | "startBit" | "width">>
+  ) => void;
   updateBitField: (fieldId: string, bitId: string, patch: Partial<Omit<BitField, "id">>) => void;
   removeBitField: (fieldId: string, bitId: string) => void;
 
@@ -122,12 +151,11 @@ export const useStructStore = create<StructState>()(
     }),
 
   // --- bit alanları (status word semantiği) ---
-  addBitField: (fieldId) =>
+  addBitField: (fieldId, placement) =>
     set((s) => ({
       currentModel: {
         ...s.currentModel,
-        fields: s.currentModel.fields.map((f) => {
-          if (f.id !== fieldId) return f;
+        fields: mapFieldById(s.currentModel.fields, fieldId, (f) => {
           const existing = f.bitFields ?? [];
           // word0'da bir sonraki boş bit'e yerleştir (anında çakışmayı azalt).
           const nextStart = existing
@@ -135,10 +163,10 @@ export const useStructStore = create<StructState>()(
             .reduce((m, b) => Math.max(m, b.startBit + b.width), 0);
           const nb: BitField = {
             id: makeId("bit"),
-            name: "newBit",
-            wordIndex: 0,
-            startBit: nextStart,
-            width: 1,
+            name: `status_${placement?.wordIndex ?? 0}_${placement?.startBit ?? nextStart}`,
+            wordIndex: placement?.wordIndex ?? 0,
+            startBit: placement?.startBit ?? nextStart,
+            width: placement?.width ?? 1,
             meanings: [],
           };
           return { ...f, bitFields: [...existing, nb] };
@@ -150,16 +178,12 @@ export const useStructStore = create<StructState>()(
     set((s) => ({
       currentModel: {
         ...s.currentModel,
-        fields: s.currentModel.fields.map((f) =>
-          f.id !== fieldId
-            ? f
-            : {
-                ...f,
-                bitFields: (f.bitFields ?? []).map((b) =>
-                  b.id === bitId ? { ...b, ...patch } : b
-                ),
-              }
-        ),
+        fields: mapFieldById(s.currentModel.fields, fieldId, (f) => ({
+          ...f,
+          bitFields: (f.bitFields ?? []).map((b) =>
+            b.id === bitId ? { ...b, ...patch } : b
+          ),
+        })),
       },
     })),
 
@@ -167,11 +191,10 @@ export const useStructStore = create<StructState>()(
     set((s) => ({
       currentModel: {
         ...s.currentModel,
-        fields: s.currentModel.fields.map((f) =>
-          f.id !== fieldId
-            ? f
-            : { ...f, bitFields: (f.bitFields ?? []).filter((b) => b.id !== bitId) }
-        ),
+        fields: mapFieldById(s.currentModel.fields, fieldId, (f) => ({
+          ...f,
+          bitFields: (f.bitFields ?? []).filter((b) => b.id !== bitId),
+        })),
       },
     })),
 

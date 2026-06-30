@@ -69,6 +69,8 @@ export const computeLayout: ComputeLayout = (model) => { //types'ta tanımladı�
       typeName,
       offset: aligned,
       size,
+      arrayLength: Math.max(1, f.arrayLength),
+      elementSize: elemSize,
       paddingBefore,
       nested,
     });

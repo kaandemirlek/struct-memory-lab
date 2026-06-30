@@ -51,6 +51,12 @@ interface StructState {
   removeField: (id: string) => void;
   reorderFields: (fromIndex: number, toIndex: number) => void;
 
+  // --- Geçmiş (undo/redo) ---
+  past: StructModel[];
+  future: StructModel[];
+  undo: () => void;
+  redo: () => void;
+
   // --- PERSON B action'ları (versiyon yönetimi) ---
   saveVersion: () => void;
   loadVersion: (versionId: string) => void;
@@ -66,100 +72,126 @@ interface StructState {
 
 export const useStructStore = create<StructState>()(
   persist(
-    (set, get) => ({
-  currentModel: initialModel,
-  versions: [],
-  baseVersionId: null,
-  targetVersionId: null,
+    (set, get) => {
+      const MAX_HISTORY = 100;
+      // currentModel'i değiştir ve önceki halini undo için kaydet.
+      const editModel = (transform: (m: StructModel) => StructModel) =>
+        set((s) => ({
+          currentModel: transform(s.currentModel),
+          past: [...s.past, s.currentModel].slice(-MAX_HISTORY),
+          future: [],
+        }));
 
-  // -------------------------------------------------------------------------
-  // PERSON A — currentModel düzenleme action'ları
-  // -------------------------------------------------------------------------
-  setModel: (model) => set({ currentModel: model }),
+      return {
+        currentModel: initialModel,
+        versions: [],
+        baseVersionId: null,
+        targetVersionId: null,
+        past: [],
+        future: [],
 
-  setStructName: (name) =>
-    set((s) => ({ currentModel: { ...s.currentModel, name } })),
+        // -----------------------------------------------------------------
+        // PERSON A — currentModel düzenleme (her biri undo geçmişi tutar)
+        // -----------------------------------------------------------------
+        setModel: (model) => editModel(() => model),
 
-  addField: () =>
-    set((s) => ({
-      currentModel: {
-        ...s.currentModel,
-        fields: [
-          ...s.currentModel.fields,
-          { id: makeId("f"), name: "newField", type: "int32_t", arrayLength: 1 },
-        ],
-      },
-    })),
+        setStructName: (name) => editModel((m) => ({ ...m, name })),
 
-  updateField: (id, patch) =>
-    set((s) => ({
-      currentModel: {
-        ...s.currentModel,
-        fields: s.currentModel.fields.map((f) =>
-          f.id === id ? { ...f, ...patch } : f
-        ),
-      },
-    })),
+        addField: () =>
+          editModel((m) => ({
+            ...m,
+            fields: [
+              ...m.fields,
+              { id: makeId("f"), name: "newField", type: "int32_t", arrayLength: 1 },
+            ],
+          })),
 
-  removeField: (id) =>
-    set((s) => ({
-      currentModel: {
-        ...s.currentModel,
-        fields: s.currentModel.fields.filter((f) => f.id !== id),
-      },
-    })),
+        updateField: (id, patch) =>
+          editModel((m) => ({
+            ...m,
+            fields: m.fields.map((f) => (f.id === id ? { ...f, ...patch } : f)),
+          })),
 
-  reorderFields: (fromIndex, toIndex) =>
-    set((s) => {
-      const fields = [...s.currentModel.fields];
-      const [moved] = fields.splice(fromIndex, 1);
-      fields.splice(toIndex, 0, moved);
-      return { currentModel: { ...s.currentModel, fields } };
-    }),
+        removeField: (id) =>
+          editModel((m) => ({
+            ...m,
+            fields: m.fields.filter((f) => f.id !== id),
+          })),
 
-  // -------------------------------------------------------------------------
-  // PERSON B — versiyon yönetimi action'ları
-  // -------------------------------------------------------------------------
-  saveVersion: () =>
-    set((s) => {
-      const label = `v${s.versions.length + 1}`;
-      const snapshot: Version = {
-        id: makeId("ver"),
-        label,
-        // Derin kopya: sonradan editörde yapılan değişiklik versiyonu bozmasın.
-        model: structuredClone(get().currentModel),
-        createdAt: new Date().toISOString(),
+        reorderFields: (fromIndex, toIndex) =>
+          editModel((m) => {
+            const fields = [...m.fields];
+            const [moved] = fields.splice(fromIndex, 1);
+            fields.splice(toIndex, 0, moved);
+            return { ...m, fields };
+          }),
+
+        // -----------------------------------------------------------------
+        // Undo / redo
+        // -----------------------------------------------------------------
+        undo: () =>
+          set((s) => {
+            if (s.past.length === 0) return {};
+            const previous = s.past[s.past.length - 1];
+            return {
+              currentModel: previous,
+              past: s.past.slice(0, -1),
+              future: [s.currentModel, ...s.future].slice(0, MAX_HISTORY),
+            };
+          }),
+
+        redo: () =>
+          set((s) => {
+            if (s.future.length === 0) return {};
+            const next = s.future[0];
+            return {
+              currentModel: next,
+              past: [...s.past, s.currentModel].slice(-MAX_HISTORY),
+              future: s.future.slice(1),
+            };
+          }),
+
+        // -----------------------------------------------------------------
+        // PERSON B — versiyon yönetimi
+        // -----------------------------------------------------------------
+        saveVersion: () =>
+          set((s) => {
+            const label = `v${s.versions.length + 1}`;
+            const snapshot: Version = {
+              id: makeId("ver"),
+              label,
+              model: structuredClone(get().currentModel),
+              createdAt: new Date().toISOString(),
+            };
+            return { versions: [...s.versions, snapshot] };
+          }),
+
+        loadVersion: (versionId) => {
+          const v = get().versions.find((x) => x.id === versionId);
+          if (v) editModel(() => structuredClone(v.model));
+        },
+
+        setBaseVersion: (versionId) => set({ baseVersionId: versionId }),
+
+        setTargetVersion: (versionId) => set({ targetVersionId: versionId }),
+
+        renameVersion: (versionId, label) =>
+          set((s) => ({
+            versions: s.versions.map((v) =>
+              v.id === versionId ? { ...v, label } : v
+            ),
+          })),
+
+        deleteVersion: (versionId) =>
+          set((s) => ({
+            versions: s.versions.filter((v) => v.id !== versionId),
+            baseVersionId:
+              s.baseVersionId === versionId ? null : s.baseVersionId,
+            targetVersionId:
+              s.targetVersionId === versionId ? null : s.targetVersionId,
+          })),
       };
-      return { versions: [...s.versions, snapshot] };
-    }),
-
-  loadVersion: (versionId) =>
-    set((s) => {
-      const v = s.versions.find((x) => x.id === versionId);
-      if (!v) return {};
-      return { currentModel: structuredClone(v.model) };
-    }),
-
-  setBaseVersion: (versionId) => set({ baseVersionId: versionId }),
-
-  setTargetVersion: (versionId) => set({ targetVersionId: versionId }),
-
-  renameVersion: (versionId, label) =>
-    set((s) => ({
-      versions: s.versions.map((v) =>
-        v.id === versionId ? { ...v, label } : v
-      ),
-    })),
-
-  deleteVersion: (versionId) =>
-    set((s) => ({
-      versions: s.versions.filter((v) => v.id !== versionId),
-      baseVersionId:
-        s.baseVersionId === versionId ? null : s.baseVersionId,
-      targetVersionId:
-        s.targetVersionId === versionId ? null : s.targetVersionId,
-    })),
-    }),
+    },
     {
       name: "struct-memory-lab",
       storage: createJSONStorage(() => localStorage),
@@ -181,6 +213,9 @@ export const useStructStore = create<StructState>()(
 //   Sentinel: bir taraf bir versiyon yerine "güncel düzenlemeler" olabilir.
 // ----------------------------------------------------------------------------
 export const CURRENT_EDITS = "__current__";
+
+/** Display label for the live (unsaved) working state. */
+export const CURRENT_EDITS_LABEL = "Live";
 
 export interface ResolvedComparison {
   fromModel: StructModel | undefined;
@@ -213,7 +248,7 @@ export function resolveComparison(
   let fromVersionId: string | undefined;
   if (baseVersionId === CURRENT_EDITS) {
     fromModel = currentModel;
-    fromLabel = "current edits";
+    fromLabel = CURRENT_EDITS_LABEL;
     fromValue = CURRENT_EDITS;
     fromVersionId = undefined;
   } else {
@@ -242,7 +277,7 @@ export function resolveComparison(
     toVersionId = target.id;
   } else {
     toModel = currentModel;
-    toLabel = "current edits";
+    toLabel = CURRENT_EDITS_LABEL;
     toValue = CURRENT_EDITS;
     toVersionId = undefined;
   }

@@ -9,7 +9,7 @@
 //   a = eski (önceki versiyon), b = yeni (güncel model)
 // ============================================================================
 
-import type { DiffEntry, DiffVersions, Field } from "@/types";
+import type { DiffEntry, DiffKind, DiffVersions, Field, StructModel } from "@/types";
 
 /** Alanın tip imzası, dizi sözdizimi dahil:  "uint8_t[16]" ya da "uint32_t". */
 function typeSignature(field: Field): string {
@@ -77,3 +77,65 @@ export const diffVersions: DiffVersions = (a, b) => {
 
   return entries;
 };
+
+// ----------------------------------------------------------------------------
+// Bir diff'i kompakt sayılara indirger (versiyon kartlarında "+2 −1 ~1" için).
+// ----------------------------------------------------------------------------
+export interface DiffSummary {
+  added: number;
+  removed: number;
+  /** type-changed + renamed (alan "değişti"). */
+  changed: number;
+  reordered: number;
+}
+
+export function summarizeDiff(entries: DiffEntry[]): DiffSummary {
+  const summary: DiffSummary = { added: 0, removed: 0, changed: 0, reordered: 0 };
+  for (const e of entries) {
+    if (e.kind === "added") summary.added++;
+    else if (e.kind === "removed") summary.removed++;
+    else if (e.kind === "reordered") summary.reordered++;
+    else summary.changed++; // type-changed + renamed
+  }
+  return summary;
+}
+
+const REPORT_LABEL: Record<DiffKind, string> = {
+  added: "Added",
+  removed: "Removed",
+  "type-changed": "Type",
+  renamed: "Renamed",
+  reordered: "Reordered",
+};
+
+/** İki versiyon arasındaki farkı paylaşılabilir Markdown raporu olarak üretir. */
+export function diffReport(
+  a: StructModel,
+  b: StructModel,
+  fromLabel: string,
+  toLabel: string
+): string {
+  const entries = diffVersions(a, b);
+  const lines = [`# Struct changes: ${fromLabel} → ${toLabel}`, ""];
+
+  if (entries.length === 0) {
+    lines.push("No changes.");
+    return lines.join("\n") + "\n";
+  }
+
+  const s = summarizeDiff(entries);
+  const parts: string[] = [];
+  if (s.added) parts.push(`${s.added} added`);
+  if (s.removed) parts.push(`${s.removed} removed`);
+  if (s.changed) parts.push(`${s.changed} changed`);
+  if (s.reordered) parts.push("reordered");
+
+  lines.push(
+    `**${entries.length} change${entries.length === 1 ? "" : "s"}** — ${parts.join(", ")}`,
+    ""
+  );
+  for (const e of entries) {
+    lines.push(`- **${REPORT_LABEL[e.kind]}** ${e.detail}`);
+  }
+  return lines.join("\n") + "\n";
+}

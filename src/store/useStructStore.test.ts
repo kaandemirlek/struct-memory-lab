@@ -6,6 +6,7 @@ import {
   useStructStore,
   resolveComparison,
   CURRENT_EDITS,
+  CURRENT_EDITS_LABEL,
 } from "@/store/useStructStore";
 import type { Field, StructModel, Version } from "@/types";
 
@@ -159,14 +160,14 @@ describe("resolveComparison", () => {
     expect(c.fromLabel).toBe("v2");
     expect(c.fromValue).toBe("v2");
     expect(c.toModel).toBe(current);
-    expect(c.toLabel).toBe("current edits");
+    expect(c.toLabel).toBe(CURRENT_EDITS_LABEL);
     expect(c.toValue).toBe(CURRENT_EDITS);
   });
 
   it("treats a CURRENT_EDITS base as the live model", () => {
     const c = resolveComparison(versions, current, CURRENT_EDITS, null);
     expect(c.fromModel).toBe(current);
-    expect(c.fromLabel).toBe("current edits");
+    expect(c.fromLabel).toBe(CURRENT_EDITS_LABEL);
     expect(c.fromVersionId).toBeUndefined();
   });
 

@@ -14,6 +14,7 @@ export interface LayoutSegment {
   kind: "field" | "padding";
   offset: number; // banttaki başlangıç byte'ı
   size: number; // kaç byte
+  fieldId?: string;
   name?: string; // sadece field için
   type?: CppPrimitive; // sadece field için
   colorIndex?: number; // sadece field için (kararlı renk seçimi)
@@ -34,6 +35,7 @@ export function toSegments(layout: LayoutResult): LayoutSegment[] {
     }
     segments.push({
       kind: "field",
+      fieldId: f.fieldId,
       offset: f.offset,
       size: f.size,
       name: f.name,

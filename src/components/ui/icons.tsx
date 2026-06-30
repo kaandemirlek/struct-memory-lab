@@ -123,3 +123,21 @@ export function StackIcon(props: SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+
+export function UndoIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M9 14 4 9l5-5" />
+      <path d="M4 9h11a4 4 0 1 1 0 8h-1" />
+    </svg>
+  );
+}
+
+export function RedoIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d="m15 14 5-5-5-5" />
+      <path d="M20 9H9a4 4 0 1 0 0 8h1" />
+    </svg>
+  );
+}

@@ -1,8 +1,11 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { CloseIcon } from "@/components/ui/icons";
+
+const FOCUSABLE =
+  'button, input, textarea, select, a[href], [tabindex]:not([tabindex="-1"])';
 
 const SIZES = {
   md: "max-w-md",
@@ -29,12 +32,45 @@ export default function Modal({
 }) {
   // Portals must run on the client, after mount.
   const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setMounted(true), 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  const cardRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
+    const prevActive = document.activeElement as HTMLElement | null;
+
+    // Move focus into the dialog (unless something inside is already focused,
+    // e.g. an autoFocus textarea).
+    const card = cardRef.current;
+    if (card && !card.contains(document.activeElement)) {
+      const first = card.querySelector<HTMLElement>(FOCUSABLE);
+      (first ?? card).focus();
+    }
+
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (e.key === "Tab" && cardRef.current) {
+        const items = Array.from(
+          cardRef.current.querySelectorAll<HTMLElement>(FOCUSABLE)
+        ).filter((el) => !el.hasAttribute("disabled"));
+        if (items.length === 0) return;
+        const first = items[0];
+        const last = items[items.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
     };
     window.addEventListener("keydown", onKey);
     // Lock background scroll while the modal is open.
@@ -43,6 +79,7 @@ export default function Modal({
     return () => {
       window.removeEventListener("keydown", onKey);
       document.body.style.overflow = prevOverflow;
+      prevActive?.focus?.();
     };
   }, [open, onClose]);
 
@@ -60,7 +97,9 @@ export default function Modal({
       aria-label={title}
     >
       <div
-        className={`flex max-h-[88vh] w-full ${SIZES[size]} flex-col overflow-hidden rounded-lg border border-border bg-surface shadow-2xl`}
+        ref={cardRef}
+        tabIndex={-1}
+        className={`flex max-h-[88vh] w-full ${SIZES[size]} flex-col overflow-hidden rounded-lg border border-border bg-surface shadow-2xl outline-none`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">

@@ -1,4 +1,5 @@
 import StoreHydration from "@/components/StoreHydration";
+import HistoryControls from "@/components/HistoryControls";
 import ImportBox from "@/components/ImportBox";
 import FieldEditor from "@/components/FieldEditor";
 import LayoutVisualizer from "@/components/LayoutVisualizer";
@@ -26,6 +27,8 @@ export default function Home() {
             </p>
           </div>
           <div className="ml-auto flex items-center gap-2">
+            <HistoryControls />
+            <div className="mx-1 h-5 w-px bg-border" aria-hidden />
             <ImportBox />
             <ExportBox />
           </div>
@@ -40,11 +43,11 @@ export default function Home() {
 
           <div className="min-w-0 space-y-4">
             <LayoutVisualizer />
-            <div className="grid gap-4 xl:grid-cols-2">
+            <OptimizerPanel />
+            <div className="grid items-start gap-4 xl:grid-cols-2">
               <DiffView />
               <WarningsPanel />
             </div>
-            <OptimizerPanel />
           </div>
 
           <VersionSidebar />

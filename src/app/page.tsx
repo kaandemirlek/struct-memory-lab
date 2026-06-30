@@ -2,6 +2,7 @@ import StoreHydration from "@/components/StoreHydration";
 import ImportBox from "@/components/ImportBox";
 import FieldEditor from "@/components/FieldEditor";
 import LayoutVisualizer from "@/components/LayoutVisualizer";
+import BitFieldPanel from "@/components/BitFieldPanel";
 import VersionPanel from "@/components/VersionPanel";
 import DiffView from "@/components/DiffView";
 import WarningsPanel from "@/components/WarningsPanel";
@@ -34,6 +35,7 @@ export default function Home() {
             <ImportBox />
             <FieldEditor />
             <LayoutVisualizer />
+            <BitFieldPanel />
           </div>
           <div className="space-y-6">
             <VersionPanel />

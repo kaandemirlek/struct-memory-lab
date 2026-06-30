@@ -5,6 +5,7 @@ import { useStructStore } from "@/store/useStructStore";
 import { exportCpp, exportModelJson } from "@/engine/exporter";
 import { validateStruct } from "@/engine/validation";
 import Button from "@/components/ui/Button";
+import CodePreview from "@/components/ui/CodePreview";
 import Modal from "@/components/ui/Modal";
 import { CopyIcon, DownloadIcon } from "@/components/ui/icons";
 
@@ -121,9 +122,7 @@ export default function ExportBox() {
           </div>
         )}
 
-        <pre className="max-h-[55vh] overflow-auto rounded-lg border border-border bg-surface-muted p-4 font-mono text-sm leading-6">
-          {code}
-        </pre>
+        <CodePreview value={code} highlight={isCpp} />
       </Modal>
     </>
   );

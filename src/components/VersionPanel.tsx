@@ -7,34 +7,6 @@ import Panel from "@/components/ui/Panel";
 import Button from "@/components/ui/Button";
 import { RestoreIcon, PencilIcon, TrashIcon } from "@/components/ui/icons";
 
-function CompareButton({
-  active,
-  children,
-  onClick,
-}: {
-  active: boolean;
-  children: ReactNode;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={(e) => {
-        e.stopPropagation();
-        onClick();
-      }}
-      onDoubleClick={(e) => e.stopPropagation()}
-      className={`h-7 rounded-md px-2 text-[11px] font-semibold transition-colors ${
-        active
-          ? "bg-accent text-accent-foreground"
-          : "text-muted hover:bg-surface-muted hover:text-foreground"
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
-
 export default function VersionPanel({
   collapseAction,
 }: {
@@ -186,7 +158,7 @@ export default function VersionPanel({
                     </div>
                   </div>
                 ) : (
-                  <>
+                  <div className="flex items-start justify-between gap-2">
                     <button
                       type="button"
                       onClick={(e) => {
@@ -197,20 +169,20 @@ export default function VersionPanel({
                         e.stopPropagation();
                         startEdit(v.id, v.label);
                       }}
-                      className="block w-full min-w-0 text-left"
-                      title="Select as From"
+                      className="block min-w-0 flex-1 text-left"
+                      title="Left-click: From. Right-click: To. Double-click: rename."
                     >
                       <span className="flex min-w-0 items-center gap-2">
                         <span className="min-w-0 truncate text-sm font-semibold">
                           {v.label}
                         </span>
                         {isFrom && (
-                          <span className="rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-accent">
+                          <span className="shrink-0 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-accent">
                             From
                           </span>
                         )}
                         {isTo && (
-                          <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-emerald-600 dark:text-emerald-400">
+                          <span className="shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-emerald-600 dark:text-emerald-400">
                             To
                           </span>
                         )}
@@ -223,56 +195,42 @@ export default function VersionPanel({
                       </span>
                     </button>
 
-                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-                      <div className="inline-flex rounded-lg border border-border bg-surface p-0.5">
-                        <CompareButton
-                          active={isFrom}
-                          onClick={() => setBaseVersion(v.id)}
-                        >
-                          From
-                        </CompareButton>
-                        <CompareButton active={isTo} onClick={() => setTargetVersion(v.id)}>
-                          To
-                        </CompareButton>
-                      </div>
-
-                      <div
-                        className="flex shrink-0 items-center gap-1"
-                        onClick={(e) => e.stopPropagation()}
-                        onDoubleClick={(e) => e.stopPropagation()}
+                    <div
+                      className="flex shrink-0 items-center gap-0.5"
+                      onClick={(e) => e.stopPropagation()}
+                      onDoubleClick={(e) => e.stopPropagation()}
+                    >
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-muted hover:text-foreground"
+                        aria-label="Restore this version into the editor"
+                        title="Restore into editor"
+                        onClick={() => loadVersion(v.id)}
                       >
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="text-muted hover:text-foreground"
-                          aria-label="Restore this version into the editor"
-                          title="Restore into editor"
-                          onClick={() => loadVersion(v.id)}
-                        >
-                          <RestoreIcon />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="text-muted hover:text-foreground"
-                          aria-label="Rename this version"
-                          title="Rename"
-                          onClick={() => startEdit(v.id, v.label)}
-                        >
-                          <PencilIcon />
-                        </Button>
-                        <Button
-                          variant="danger"
-                          size="icon"
-                          aria-label="Delete this version"
-                          title="Delete"
-                          onClick={() => startDelete(v.id)}
-                        >
-                          <TrashIcon />
-                        </Button>
-                      </div>
+                        <RestoreIcon />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-muted hover:text-foreground"
+                        aria-label="Rename this version"
+                        title="Rename"
+                        onClick={() => startEdit(v.id, v.label)}
+                      >
+                        <PencilIcon />
+                      </Button>
+                      <Button
+                        variant="danger"
+                        size="icon"
+                        aria-label="Delete this version"
+                        title="Delete"
+                        onClick={() => startDelete(v.id)}
+                      >
+                        <TrashIcon />
+                      </Button>
                     </div>
-                  </>
+                  </div>
                 )}
               </li>
             );

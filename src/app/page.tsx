@@ -2,7 +2,6 @@ import StoreHydration from "@/components/StoreHydration";
 import ImportBox from "@/components/ImportBox";
 import FieldEditor from "@/components/FieldEditor";
 import LayoutVisualizer from "@/components/LayoutVisualizer";
-import SafetyStatus from "@/components/SafetyStatus";
 import VersionSidebar from "@/components/VersionSidebar";
 import DiffView from "@/components/DiffView";
 import WarningsPanel from "@/components/WarningsPanel";
@@ -41,7 +40,6 @@ export default function Home() {
 
           <div className="min-w-0 space-y-4">
             <LayoutVisualizer />
-            <SafetyStatus />
             <div className="grid gap-4 xl:grid-cols-2">
               <DiffView />
               <WarningsPanel />

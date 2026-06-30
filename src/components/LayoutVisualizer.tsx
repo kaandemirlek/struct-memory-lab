@@ -41,7 +41,7 @@ export default function LayoutVisualizer() {
           </div>
 
           <div className="overflow-x-auto">
-            <div className="flex h-16 w-max overflow-hidden rounded-lg border border-border">
+            <div className="flex h-32 w-max overflow-hidden rounded-lg border border-border">
               {segments.map((s, i) =>
                 s.kind === "field" ? (
                   <div

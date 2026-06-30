@@ -12,7 +12,7 @@
 
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
-import type { Field, StructModel, Version } from "@/types";
+import type { BitField, Field, StructModel, Version } from "@/types";
 
 // Basit benzersiz id üretici (alanlar ve versiyonlar için).
 let _idCounter = 0;
@@ -50,6 +50,10 @@ interface StructState {
   updateField: (id: string, patch: Partial<Omit<Field, "id">>) => void;
   removeField: (id: string) => void;
   reorderFields: (fromIndex: number, toIndex: number) => void;
+  // bit alanları (status word semantiği)
+  addBitField: (fieldId: string) => void;
+  updateBitField: (fieldId: string, bitId: string, patch: Partial<Omit<BitField, "id">>) => void;
+  removeBitField: (fieldId: string, bitId: string) => void;
 
   // --- PERSON B action'ları (versiyon yönetimi) ---
   saveVersion: () => void;
@@ -116,6 +120,60 @@ export const useStructStore = create<StructState>()(
       fields.splice(toIndex, 0, moved);
       return { currentModel: { ...s.currentModel, fields } };
     }),
+
+  // --- bit alanları (status word semantiği) ---
+  addBitField: (fieldId) =>
+    set((s) => ({
+      currentModel: {
+        ...s.currentModel,
+        fields: s.currentModel.fields.map((f) => {
+          if (f.id !== fieldId) return f;
+          const existing = f.bitFields ?? [];
+          // word0'da bir sonraki boş bit'e yerleştir (anında çakışmayı azalt).
+          const nextStart = existing
+            .filter((b) => b.wordIndex === 0)
+            .reduce((m, b) => Math.max(m, b.startBit + b.width), 0);
+          const nb: BitField = {
+            id: makeId("bit"),
+            name: "newBit",
+            wordIndex: 0,
+            startBit: nextStart,
+            width: 1,
+            meanings: [],
+          };
+          return { ...f, bitFields: [...existing, nb] };
+        }),
+      },
+    })),
+
+  updateBitField: (fieldId, bitId, patch) =>
+    set((s) => ({
+      currentModel: {
+        ...s.currentModel,
+        fields: s.currentModel.fields.map((f) =>
+          f.id !== fieldId
+            ? f
+            : {
+                ...f,
+                bitFields: (f.bitFields ?? []).map((b) =>
+                  b.id === bitId ? { ...b, ...patch } : b
+                ),
+              }
+        ),
+      },
+    })),
+
+  removeBitField: (fieldId, bitId) =>
+    set((s) => ({
+      currentModel: {
+        ...s.currentModel,
+        fields: s.currentModel.fields.map((f) =>
+          f.id !== fieldId
+            ? f
+            : { ...f, bitFields: (f.bitFields ?? []).filter((b) => b.id !== bitId) }
+        ),
+      },
+    })),
 
   // -------------------------------------------------------------------------
   // PERSON B — versiyon yönetimi action'ları

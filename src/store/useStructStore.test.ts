@@ -186,3 +186,50 @@ describe("resolveComparison", () => {
     expect(c.fromModel).toBeUndefined();
   });
 });
+
+describe("useStructStore — bit field actions", () => {
+  beforeEach(() => {
+    useStructStore.setState({
+      currentModel: {
+        name: "StatusPacket",
+        fields: [
+          { id: "sw", name: "statusWords", type: "uint32_t", arrayLength: 3, bitFields: [] },
+        ],
+      },
+      versions: [],
+      baseVersionId: null,
+      targetVersionId: null,
+    });
+  });
+
+  const bits = () => get().currentModel.fields[0].bitFields!;
+
+  it("addBitField appends a 1-bit field at the next free bit of word 0", () => {
+    get().addBitField("sw");
+    get().addBitField("sw");
+    expect(bits()).toHaveLength(2);
+    expect(bits().map((b) => b.startBit)).toEqual([0, 1]); // ardışık yerleşim
+    expect(bits()[0].width).toBe(1);
+  });
+
+  it("updateBitField patches name/position/meanings", () => {
+    get().addBitField("sw");
+    const id = bits()[0].id;
+    get().updateBitField("sw", id, {
+      name: "irCameraFail",
+      width: 3,
+      meanings: [{ value: 0, label: "OK" }, { value: 1, label: "FAIL" }],
+    });
+    expect(bits()[0]).toMatchObject({ name: "irCameraFail", width: 3 });
+    expect(bits()[0].meanings).toHaveLength(2);
+  });
+
+  it("removeBitField deletes by id", () => {
+    get().addBitField("sw");
+    get().addBitField("sw");
+    const id = bits()[0].id;
+    get().removeBitField("sw", id);
+    expect(bits()).toHaveLength(1);
+    expect(bits()[0].id).not.toBe(id);
+  });
+});

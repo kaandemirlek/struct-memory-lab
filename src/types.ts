@@ -60,6 +60,31 @@ export interface Field {
   arrayLength: number; // Dizi uzunluğu. Tekil alan için 1, dizi için >1 (örn. uint8_t name[16]).
   /** type === "struct" iken iç içe struct modeli (özyinelemeli). */
   nested?: StructModel;
+  /**
+   * Bit seviyesinde semantik alanlar (yalnızca unsigned integer tiplerde anlamlı).
+   * Fiziksel yerleşimi (computeLayout) DEĞİŞTİRMEZ — byte'ların bir YORUM katmanıdır.
+   * Savunma/gömülü: status word'ler, telemetri bayrakları, donanım register'ları.
+   */
+  bitFields?: BitField[];
+}
+
+// ---------------------------------------------------------------------------
+// Bit seviyesinde semantik alan (status word yorumu).
+//   Örn: statusWords[0].bit0 -> irCameraFail (0=OK, 1=FAIL)
+// ---------------------------------------------------------------------------
+export interface BitField {
+  id: string;
+  name: string; // semantik ad: "irCameraFail", "operationMode"
+  wordIndex: number; // dizi/word indeksi (tekil alan için 0)
+  startBit: number; // word içinde 0-tabanlı başlangıç biti
+  width: number; // bit sayısı (1 = bayrak, >1 = çok-bitli alan)
+  /** Değer anlamları: [{value:0,label:"OK"},{value:1,label:"FAIL"}] */
+  meanings?: BitMeaning[];
+}
+
+export interface BitMeaning {
+  value: number;
+  label: string;
 }
 
 // ---------------------------------------------------------------------------

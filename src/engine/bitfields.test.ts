@@ -160,4 +160,18 @@ describe("analyzeBitWarnings (model)", () => {
     };
     expect(analyzeBitWarnings(model).length).toBeGreaterThan(0);
   });
+
+  it("nested struct içindeki bit uyarılarını da toplar (özyinelemeli)", () => {
+    const inner: StructModel = {
+      name: "Inner",
+      fields: [word("uint32_t", 1, [bf("a", 0, 0, 4), bf("b", 0, 1, 1)])], // overlap
+    };
+    const model: StructModel = {
+      name: "Outer",
+      fields: [{ id: "n", name: "inner", type: "struct", arrayLength: 1, nested: inner }],
+    };
+    expect(analyzeBitWarnings(model)).toContainEqual(
+      expect.objectContaining({ severity: "danger", message: expect.stringMatching(/Overlap/) })
+    );
+  });
 });

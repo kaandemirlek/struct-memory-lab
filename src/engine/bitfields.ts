@@ -136,7 +136,10 @@ export function bitWarningsForField(field: Field): Warning[] {
   return out;
 }
 
-/** Modeldeki tüm alanların bit alanı uyarıları. */
+/** Modeldeki tüm alanların bit alanı uyarıları (nested struct'lara özyinelemeli iner). */
 export function analyzeBitWarnings(model: StructModel): Warning[] {
-  return model.fields.flatMap(bitWarningsForField);
+  return model.fields.flatMap((f) => [
+    ...bitWarningsForField(f),
+    ...(f.type === "struct" && f.nested ? analyzeBitWarnings(f.nested) : []),
+  ]);
 }

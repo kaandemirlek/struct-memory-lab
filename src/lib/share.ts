@@ -6,7 +6,7 @@
 // hash (base64url), so no server round-trip and nothing is logged server-side.
 // ============================================================================
 
-import { TYPE_INFO, type StructModel } from "@/types";
+import type { StructModel } from "@/types";
 
 function toBase64Url(json: string): string {
   const b64 = btoa(String.fromCharCode(...new TextEncoder().encode(json)));
@@ -35,13 +35,14 @@ function isValidModel(obj: unknown): obj is StructModel {
   if (!obj || typeof obj !== "object") return false;
   const m = obj as { name?: unknown; fields?: unknown };
   if (typeof m.name !== "string" || !Array.isArray(m.fields)) return false;
+  // Accept any string type (primitives and "struct" for nested fields); the
+  // engine tolerates unknown shapes, and this only guards obviously bad hashes.
   return m.fields.every((f) => {
     const field = f as Record<string, unknown>;
     return (
       typeof field.id === "string" &&
       typeof field.name === "string" &&
       typeof field.type === "string" &&
-      field.type in TYPE_INFO &&
       typeof field.arrayLength === "number"
     );
   });

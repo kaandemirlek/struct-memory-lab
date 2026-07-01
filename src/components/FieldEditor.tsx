@@ -1,7 +1,7 @@
 // FieldEditor.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -30,6 +30,7 @@ const TYPES = Object.keys(TYPE_INFO) as CppPrimitive[];
 
 const inputClass =
   "min-w-0 rounded-lg border border-border bg-surface-muted px-2 py-1.5 font-mono text-sm outline-none focus:border-accent";
+const subscribeToNothing = () => () => {};
 
 // Drag handle dots (SVG, not font-dependent).
 function GripIcon() {
@@ -57,15 +58,45 @@ function FieldRowInner({ field }: { field: Field }) {
       />
       <select
         value={field.type}
-        onChange={(e) => updateField(field.id, { type: e.target.value as CppPrimitive })}
+        onChange={(e) => {
+          const v = e.target.value as CppPrimitive | "struct";
+          if (v === "struct") return; // nested zaten struct; dropdown'dan "struct"a geçiş yok
+          // primitive'e dönüşte iç içe struct verisini temizle (layout/export tutarlı kalsın)
+          updateField(field.id, { type: v, nested: undefined });
+        }}
         className={inputClass}
       >
+        {/* Nested alan: gerçek tipi ("struct") seçili gösterilemediği için struct adını
+            (Vec3) bir option olarak ekle; böylece "bool" yerine doğru tip görünür. */}
+        {field.type === "struct" && (
+          <option value="struct">{field.nested?.name || "struct"}</option>
+        )}
         {TYPES.map((t) => (
           <option key={t} value={t}>
             {t}
           </option>
         ))}
       </select>
+      <label className="flex items-center gap-1">
+        <span className="text-xs text-muted">×</span>
+        <input
+          type="number"
+          min={1}
+          max={1024}
+          value={field.arrayLength}
+          onChange={(e) =>
+            updateField(field.id, {
+              arrayLength: Math.max(
+                1,
+                Math.min(1024, Math.floor(Number(e.target.value) || 1))
+              ),
+            })
+          }
+          aria-label={`Array length for ${field.name}`}
+          title="Array length"
+          className={`w-16 text-center ${inputClass}`}
+        />
+      </label>
       <button
         onClick={() => removeField(field.id)}
         aria-label={`Remove ${field.name}`}
@@ -121,11 +152,7 @@ export default function FieldEditor() {
   const issues = validateStruct(model);
 
   // dnd-kit causes a hydration mismatch on the server → render only after mount.
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => {
-    const timer = window.setTimeout(() => setMounted(true), 0);
-    return () => window.clearTimeout(timer);
-  }, []);
+  const mounted = useSyncExternalStore(subscribeToNothing, () => true, () => false);
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const activeField = model.fields.find((f) => f.id === activeId) ?? null;

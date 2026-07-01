@@ -17,7 +17,8 @@ describe("optimizeLayout (sizes + savings)", () => {
     let offset = 0;
     let alignment = 1;
     const fields = model.fields.map((f) => {
-      const info = TYPE_INFO[f.type];
+      // nested struct'lar bu mock'ta kullanılmıyor; sadece tip güvenliği için guard.
+      const info = f.type === "struct" ? { size: 0, align: 1 } : TYPE_INFO[f.type];
       const size = info.size * Math.max(1, f.arrayLength);
       const aligned = alignUp(offset, info.align);
       const entry = {

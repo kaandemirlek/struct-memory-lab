@@ -12,12 +12,24 @@
 
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
-import type { Field, StructModel, Version } from "@/types";
+import type { BitField, Field, StructModel, Version } from "@/types";
 
 // Basit benzersiz id üretici (alanlar ve versiyonlar için).
 let _idCounter = 0;
 export const makeId = (prefix = "id"): string =>
   `${prefix}_${Date.now().toString(36)}_${(_idCounter++).toString(36)}`;
+
+// Bir alanı id'ye göre ağaçta (nested struct'lar dahil) bulup dönüştürür (immutable).
+// Bit alanları nested struct içindeki alanlarda da düzenlenebilsin diye gerekli.
+function mapFieldById(fields: Field[], id: string, fn: (f: Field) => Field): Field[] {
+  return fields.map((f) => {
+    if (f.id === id) return fn(f);
+    if (f.nested) {
+      return { ...f, nested: { ...f.nested, fields: mapFieldById(f.nested.fields, id, fn) } };
+    }
+    return f;
+  });
+}
 
 // Uygulama açılışında gösterilecek örnek struct.
 // ÖNEMLİ: başlangıç id'leri SABİT olmalı. makeId() Date.now() kullandığı için
@@ -28,7 +40,21 @@ const initialModel: StructModel = {
   fields: [
     { id: "f_id", name: "id", type: "uint32_t", arrayLength: 1 },
     { id: "f_alive", name: "alive", type: "bool", arrayLength: 1 },
-    { id: "f_health", name: "health", type: "double", arrayLength: 1 },
+    {
+      id: "f_position",
+      name: "position",
+      type: "struct",
+      arrayLength: 1,
+      nested: {
+        name: "Vec3",
+        fields: [
+          { id: "f_position_x", name: "x", type: "float", arrayLength: 1 },
+          { id: "f_position_y", name: "y", type: "float", arrayLength: 1 },
+          { id: "f_position_z", name: "z", type: "float", arrayLength: 1 },
+        ],
+      },
+    },
+    { id: "f_age", name: "age", type: "uint32_t", arrayLength: 5 },
   ],
 };
 
@@ -72,6 +98,13 @@ interface StructState {
   updateField: (id: string, patch: Partial<Omit<Field, "id">>) => void;
   removeField: (id: string) => void;
   reorderFields: (fromIndex: number, toIndex: number) => void;
+  // bit alanları (status word semantiği)
+  addBitField: (
+    fieldId: string,
+    placement?: Partial<Pick<BitField, "wordIndex" | "startBit" | "width">>
+  ) => void;
+  updateBitField: (fieldId: string, bitId: string, patch: Partial<Omit<BitField, "id">>) => void;
+  removeBitField: (fieldId: string, bitId: string) => void;
 
   // --- Geçmiş (undo/redo) ---
   past: StructModel[];
@@ -161,6 +194,48 @@ export const useStructStore = create<StructState>()(
             fields.splice(toIndex, 0, moved);
             return { ...m, fields };
           }),
+
+        // --- bit alanları (status word semantiği) ---
+        addBitField: (fieldId, placement) =>
+          editModel((m) => ({
+            ...m,
+            fields: mapFieldById(m.fields, fieldId, (f) => {
+              const existing = f.bitFields ?? [];
+              // word0'da bir sonraki boş bit'e yerleştir (anında çakışmayı azalt).
+              const nextStart = existing
+                .filter((b) => b.wordIndex === 0)
+                .reduce((mx, b) => Math.max(mx, b.startBit + b.width), 0);
+              const nb: BitField = {
+                id: makeId("bit"),
+                name: `status_${placement?.wordIndex ?? 0}_${placement?.startBit ?? nextStart}`,
+                wordIndex: placement?.wordIndex ?? 0,
+                startBit: placement?.startBit ?? nextStart,
+                width: placement?.width ?? 1,
+                meanings: [],
+              };
+              return { ...f, bitFields: [...existing, nb] };
+            }),
+          })),
+
+        updateBitField: (fieldId, bitId, patch) =>
+          editModel((m) => ({
+            ...m,
+            fields: mapFieldById(m.fields, fieldId, (f) => ({
+              ...f,
+              bitFields: (f.bitFields ?? []).map((b) =>
+                b.id === bitId ? { ...b, ...patch } : b
+              ),
+            })),
+          })),
+
+        removeBitField: (fieldId, bitId) =>
+          editModel((m) => ({
+            ...m,
+            fields: mapFieldById(m.fields, fieldId, (f) => ({
+              ...f,
+              bitFields: (f.bitFields ?? []).filter((b) => b.id !== bitId),
+            })),
+          })),
 
         // -----------------------------------------------------------------
         // Undo / redo

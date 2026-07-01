@@ -8,10 +8,17 @@ import Modal from "@/components/ui/Modal";
 import CodeEditor from "@/components/ui/CodeEditor";
 import { UploadIcon } from "@/components/ui/icons";
 
-const SAMPLE = `struct Player {
+const SAMPLE = `struct Vec3 {
+    float x;
+    float y;
+    float z;
+};
+
+struct Player {
     uint32_t id;
     bool alive;
-    double health;
+    Vec3 position;
+    uint32_t age[5];
 };`;
 
 export default function ImportBox() {

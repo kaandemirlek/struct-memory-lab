@@ -109,3 +109,46 @@ describe("exportModelJson", () => {
     expect(json.layout.fields[0]).toMatchObject({ name: "id", offset: 0, size: 4 });
   });
 });
+
+describe("exportCpp — nested structs & bit-fields (merged features)", () => {
+  it("emits nested struct definitions before the parent, with static_asserts", () => {
+    const model = struct("Player", [
+      { id: "1", name: "id", type: "uint32_t", arrayLength: 1 },
+      {
+        id: "2",
+        name: "position",
+        type: "struct",
+        arrayLength: 1,
+        nested: {
+          name: "Vec3",
+          fields: [
+            { id: "3", name: "x", type: "float", arrayLength: 1 },
+            { id: "4", name: "y", type: "float", arrayLength: 1 },
+          ],
+        },
+      },
+    ]);
+    const out = exportCpp(model);
+    expect(out).toContain("struct Vec3 {");
+    expect(out.indexOf("struct Vec3 {")).toBeLessThan(out.indexOf("struct Player {"));
+    expect(out).toContain("Vec3 position;");
+    expect(out).toContain("static_assert(sizeof(Player)");
+  });
+
+  it("emits portable bit-field mask/shift macros", () => {
+    const model = struct("Player", [
+      {
+        id: "1",
+        name: "status",
+        type: "uint32_t",
+        arrayLength: 1,
+        bitFields: [
+          { id: "b1", name: "alive", wordIndex: 0, startBit: 0, width: 1, meanings: [] },
+        ],
+      },
+    ]);
+    const out = exportCpp(model);
+    expect(out).toContain("#define PLAYER_STATUS_ALIVE_SHIFT 0u");
+    expect(out).toContain("PLAYER_STATUS_ALIVE_MASK");
+  });
+});

@@ -10,7 +10,7 @@
 //   Desteklenmeyen: pointer, nested struct, bit-field, #pragma pack.
 // ============================================================================
 
-import type { ParseCpp, Field, CppPrimitive } from "@/types";
+import type { ParseCpp, Field, CppPrimitive, StructModel } from "@/types";
 import { TYPE_INFO } from "@/types";
 import { makeId } from "@/store/useStructStore";
 
@@ -55,17 +55,22 @@ function resolveType(raw: string): CppPrimitive | null {
   return ALIASES[norm] ?? null;
 }
 
-export const parseCpp: ParseCpp = (code) => {
-  const clean = stripComments(code);
+// Bir struct'ı taze id'lerle derin kopyalar (nested referansların id'leri
+// üst modelde çakışmasın diye). Özyinelemeli.
+function cloneWithFreshIds(model: StructModel): StructModel {
+  return {
+    name: model.name,
+    fields: model.fields.map((f) => ({
+      ...f,
+      id: makeId("f"),
+      nested: f.nested ? cloneWithFreshIds(f.nested) : undefined,
+    })),
+  };
+}
 
-  // Katman 1: struct <isim> { <gövde> }
-  const block = clean.match(/struct\s+([A-Za-z_]\w*)\s*\{([\s\S]*?)\}/);
-  if (!block) {
-    throw new Error('Geçerli bir struct bulunamadı. Örnek: "struct Ad { ... };"');
-  }
-  const [, name, body] = block;
-
-  // Katman 2 + 3: gövdeyi ';' ile böl, her parçayı ayrıştır.
+// Bir struct gövdesini alanlara ayrıştırır. Bir alanın tipi; önce primitive/alias,
+// olmazsa daha önce TANIMLANMIŞ bir struct adı (registry) olarak çözülür → nested.
+function parseBody(body: string, registry: Map<string, StructModel>): Field[] {
   const fields: Field[] = [];
   for (const raw of body.split(";")) {
     const decl = raw.trim();
@@ -76,18 +81,51 @@ export const parseCpp: ParseCpp = (code) => {
       throw new Error(`Alan çözümlenemedi: "${decl}"  (beklenen: "tip isim;" )`);
     }
     const [, rawType, fieldName, len] = m;
-    const type = resolveType(rawType);
-    if (!type) {
-      throw new Error(`Bilinmeyen tip: "${rawType.trim()}"  (alan: ${fieldName})`);
+    const arrayLength = len ? parseInt(len, 10) : 1;
+
+    const prim = resolveType(rawType);
+    if (prim) {
+      fields.push({ id: makeId("f"), name: fieldName, type: prim, arrayLength });
+      continue;
     }
 
-    fields.push({
-      id: makeId("f"),
-      name: fieldName,
-      type,
-      arrayLength: len ? parseInt(len, 10) : 1,
-    });
+    // Primitive değil → tanımlı bir struct adı mı? (nested)
+    const norm = rawType.trim().replace(/\s+/g, " ");
+    const known = registry.get(norm);
+    if (known) {
+      fields.push({
+        id: makeId("f"),
+        name: fieldName,
+        type: "struct",
+        arrayLength,
+        nested: cloneWithFreshIds(known),
+      });
+      continue;
+    }
+
+    throw new Error(`Bilinmeyen tip: "${norm}"  (alan: ${fieldName})`);
+  }
+  return fields;
+}
+
+export const parseCpp: ParseCpp = (code) => {
+  const clean = stripComments(code);
+
+  // Tüm "struct <isim> { <gövde> }" bloklarını sırayla işle. Bir struct yalnızca
+  // KENDİNDEN ÖNCE tanımlanmış struct'lara referans verebilir (C++ "define before use").
+  const blockRe = /struct\s+([A-Za-z_]\w*)\s*\{([\s\S]*?)\}/g;
+  const registry = new Map<string, StructModel>();
+  let last: StructModel | null = null;
+
+  for (const block of clean.matchAll(blockRe)) {
+    const [, name, body] = block;
+    const model: StructModel = { name, fields: parseBody(body, registry) };
+    registry.set(name, model);
+    last = model; // son tanımlanan struct = ana model (bağımlılıklar önce gelir)
   }
 
-  return { name, fields };
+  if (!last) {
+    throw new Error('Geçerli bir struct bulunamadı. Örnek: "struct Ad { ... };"');
+  }
+  return last;
 };

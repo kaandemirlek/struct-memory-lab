@@ -5,6 +5,7 @@ import OptimizerPanel from "@/components/OptimizerPanel";
 import DiffView from "@/components/DiffView";
 import WarningsPanel from "@/components/WarningsPanel";
 import AnnotationsPanel from "@/components/AnnotationsPanel";
+import BitFieldPanel from "@/components/BitFieldPanel";
 
 export type WorkspaceTab = "edit" | "compare";
 
@@ -43,6 +44,7 @@ export default function MiddleWorkspace({
       {tab === "edit" ? (
         <>
           <LayoutVisualizer mode="edit" />
+          <BitFieldPanel />
           <OptimizerPanel />
           <AnnotationsPanel />
         </>

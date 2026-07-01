@@ -32,16 +32,38 @@ const initialModel: StructModel = {
   ],
 };
 
+/**
+ * Bir alana (fieldId) ya da versiyona (versionId) bırakılan serbest not.
+ * ör. "bunu taşıma, serializer offset'e bağlı". Person B tarafı; paylaşılan
+ * types.ts sözleşmesine dokunmamak için burada tanımlı.
+ */
+export interface Annotation {
+  id: string;
+  targetKind: "field" | "version";
+  /** Hedefin kimliği: field.id ya da version.id. */
+  targetId: string;
+  text: string;
+  createdAt: string;
+}
+
 interface StructState {
   // --- ORTAK STATE ---
   /** Editörde üzerinde çalışılan struct. (A yazar, B okur.) */
   currentModel: StructModel;
   /** Kaydedilmiş versiyonlar (v1, v2, ...). (B yönetir.) */
   versions: Version[];
+  /** Alan/versiyon notları (takım yorumları). */
+  annotations: Annotation[];
   /** Karşılaştırmanın KAYNAK tarafı (From): seçili versiyon (null = en son). */
   baseVersionId: string | null;
   /** Karşılaştırmanın HEDEF tarafı (To): seçili versiyon (null = güncel düzenlemeler). */
   targetVersionId: string | null;
+  /**
+   * Edit Layout sekmesinde SALT-OKUNUR önizlenen versiyon (null = Live).
+   * currentModel'i DEĞİŞTİRMEZ; sadece hangi snapshot'ın görüntülendiğini tutar.
+   * Kalıcı değildir (persist edilmez) — sayfa yenilenince Live'a döner.
+   */
+  previewVersionId: string | null;
 
   // --- PERSON A action'ları (currentModel düzenleme) ---
   setModel: (model: StructModel) => void;
@@ -60,6 +82,8 @@ interface StructState {
   // --- PERSON B action'ları (versiyon yönetimi) ---
   saveVersion: () => void;
   loadVersion: (versionId: string) => void;
+  /** Edit Layout'ta bir versiyonu salt-okunur önizle (null = Live). */
+  setPreviewVersion: (versionId: string | null) => void;
   /** Karşılaştırma kaynağını (From) seç (null = en son kaydedilen versiyon). */
   setBaseVersion: (versionId: string | null) => void;
   /** Karşılaştırma hedefini (To) seç (null = güncel düzenlemeler). */
@@ -68,6 +92,14 @@ interface StructState {
   renameVersion: (versionId: string, label: string) => void;
   /** Bir versiyonu sil; taban olarak seçiliyse seçimi temizle. */
   deleteVersion: (versionId: string) => void;
+
+  // --- Notlar (takım yorumları) ---
+  /** Bir alana/versiyona not ekle. */
+  addAnnotation: (targetKind: "field" | "version", targetId: string, text: string) => void;
+  /** Bir notun metnini güncelle. */
+  updateAnnotation: (id: string, text: string) => void;
+  /** Bir notu sil. */
+  removeAnnotation: (id: string) => void;
 }
 
 export const useStructStore = create<StructState>()(
@@ -80,13 +112,17 @@ export const useStructStore = create<StructState>()(
           currentModel: transform(s.currentModel),
           past: [...s.past, s.currentModel].slice(-MAX_HISTORY),
           future: [],
+          // Herhangi bir düzenleme önizlemeden çıkar → Live görünümüne dön.
+          previewVersionId: null,
         }));
 
       return {
         currentModel: initialModel,
         versions: [],
+        annotations: [],
         baseVersionId: null,
         targetVersionId: null,
+        previewVersionId: null,
         past: [],
         future: [],
 
@@ -168,8 +204,11 @@ export const useStructStore = create<StructState>()(
 
         loadVersion: (versionId) => {
           const v = get().versions.find((x) => x.id === versionId);
+          // editModel önizlemeyi otomatik temizler (Live'a döner).
           if (v) editModel(() => structuredClone(v.model));
         },
+
+        setPreviewVersion: (versionId) => set({ previewVersionId: versionId }),
 
         setBaseVersion: (versionId) => set({ baseVersionId: versionId }),
 
@@ -189,6 +228,41 @@ export const useStructStore = create<StructState>()(
               s.baseVersionId === versionId ? null : s.baseVersionId,
             targetVersionId:
               s.targetVersionId === versionId ? null : s.targetVersionId,
+            previewVersionId:
+              s.previewVersionId === versionId ? null : s.previewVersionId,
+            // O versiyona ait notları da temizle (versiyon silme geri alınamaz).
+            annotations: s.annotations.filter(
+              (a) => !(a.targetKind === "version" && a.targetId === versionId)
+            ),
+          })),
+
+        // -----------------------------------------------------------------
+        // Notlar (takım yorumları)
+        // -----------------------------------------------------------------
+        addAnnotation: (targetKind, targetId, text) =>
+          set((s) => ({
+            annotations: [
+              ...s.annotations,
+              {
+                id: makeId("note"),
+                targetKind,
+                targetId,
+                text,
+                createdAt: new Date().toISOString(),
+              },
+            ],
+          })),
+
+        updateAnnotation: (id, text) =>
+          set((s) => ({
+            annotations: s.annotations.map((a) =>
+              a.id === id ? { ...a, text } : a
+            ),
+          })),
+
+        removeAnnotation: (id) =>
+          set((s) => ({
+            annotations: s.annotations.filter((a) => a.id !== id),
           })),
       };
     },
@@ -199,6 +273,7 @@ export const useStructStore = create<StructState>()(
       partialize: (state) => ({
         currentModel: state.currentModel,
         versions: state.versions,
+        annotations: state.annotations,
         baseVersionId: state.baseVersionId,
         targetVersionId: state.targetVersionId,
       }),

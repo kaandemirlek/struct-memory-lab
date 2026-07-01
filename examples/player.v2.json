@@ -1,0 +1,9 @@
+{
+  "name": "Player",
+  "fields": [
+    { "id": "f_id", "name": "id", "type": "uint32_t", "arrayLength": 1 },
+    { "id": "f_alive", "name": "alive", "type": "bool", "arrayLength": 1 },
+    { "id": "f_health", "name": "health", "type": "float", "arrayLength": 1 },
+    { "id": "f_score", "name": "score", "type": "int64_t", "arrayLength": 1 }
+  ]
+}

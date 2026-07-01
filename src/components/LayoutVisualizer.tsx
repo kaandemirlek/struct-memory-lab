@@ -219,14 +219,23 @@ export default function LayoutVisualizer({ mode = "edit" }: { mode?: Mode }) {
   const versions = useStructStore((s) => s.versions);
   const baseVersionId = useStructStore((s) => s.baseVersionId);
   const targetVersionId = useStructStore((s) => s.targetVersionId);
+  const previewVersionId = useStructStore((s) => s.previewVersionId);
+  const setPreviewVersion = useStructStore((s) => s.setPreviewVersion);
   const [pxPerByte, setPxPerByte] = useState(28);
+
+  // Edit sekmesinde bir snapshot önizleniyorsa onu SALT-OKUNUR göster;
+  // currentModel'e (Live) dokunma. Bulunamazsa Live'a düş.
+  const previewVersion = previewVersionId
+    ? versions.find((v) => v.id === previewVersionId)
+    : undefined;
+  const editModelToShow = previewVersion?.model ?? model;
 
   const cmp = resolveComparison(versions, model, baseVersionId, targetVersionId);
   const isComparison = Boolean(
     mode === "compare" && cmp.fromModel && cmp.toModel && cmp.fromValue !== cmp.toValue
   );
 
-  const currentLayout = computeLayout(model);
+  const currentLayout = computeLayout(editModelToShow);
   const currentSegments = toSegments(currentLayout);
 
   const fromLayout =
@@ -319,9 +328,28 @@ export default function LayoutVisualizer({ mode = "edit" }: { mode?: Mode }) {
 
   return (
     <Panel
-      title="Memory Layout"
+      title={previewVersion ? `Memory Layout — ${previewVersion.label}` : "Memory Layout"}
       description={`size ${currentLayout.totalSize} B / align ${currentLayout.alignment} B / padding ${currentLayout.totalPadding} B`}
     >
+      {previewVersion && (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-accent/40 bg-accent/10 px-3 py-2 text-xs">
+          <span className="min-w-0 text-muted">
+            Previewing{" "}
+            <span className="font-semibold text-foreground">
+              {previewVersion.label}
+            </span>{" "}
+            (read-only) — your live edits are untouched.
+          </span>
+          <button
+            type="button"
+            onClick={() => setPreviewVersion(null)}
+            className="shrink-0 rounded-md border border-accent/50 px-2 py-1 font-medium text-accent transition-colors hover:bg-accent/15"
+          >
+            Back to Live
+          </button>
+        </div>
+      )}
+
       <div className="mb-3">
         {zoomControl}
       </div>

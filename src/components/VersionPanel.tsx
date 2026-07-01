@@ -12,7 +12,8 @@ import { diffVersions, summarizeDiff } from "@/engine/diff";
 import type { StructModel, Version } from "@/types";
 import Panel from "@/components/ui/Panel";
 import Button from "@/components/ui/Button";
-import { RestoreIcon, PencilIcon, TrashIcon } from "@/components/ui/icons";
+import { RestoreIcon, PencilIcon, TrashIcon, LinkIcon } from "@/components/ui/icons";
+import { buildShareUrl } from "@/lib/share";
 
 export type VersionPanelMode = "edit" | "compare";
 
@@ -48,11 +49,43 @@ function VersionChangeSummary({ prev, curr }: { prev?: Version; curr: Version })
   return <>{parts}</>;
 }
 
-function LiveCard({ model }: { model: StructModel }) {
+function LiveCard({
+  model,
+  active,
+  onClick,
+}: {
+  model: StructModel;
+  active: boolean;
+  onClick: () => void;
+}) {
   return (
-    <li className="rounded-lg border border-dashed border-accent/40 bg-accent/10 p-2.5">
-      <span className="block min-w-0 truncate text-sm font-semibold">
-        {CURRENT_EDITS_LABEL}
+    <li
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick();
+        }
+      }}
+      title="View your live, unsaved edits."
+      aria-pressed={active}
+      className={`cursor-pointer rounded-lg border border-dashed p-2.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+        active
+          ? "border-accent bg-accent/10"
+          : "border-accent/40 bg-accent/5 hover:border-accent/60"
+      }`}
+    >
+      <span className="flex min-w-0 items-center gap-2">
+        <span className="min-w-0 truncate text-sm font-semibold">
+          {CURRENT_EDITS_LABEL}
+        </span>
+        {active && (
+          <span className="shrink-0 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-accent">
+            Viewing
+          </span>
+        )}
       </span>
       <span className="mt-0.5 block min-w-0 truncate text-xs text-muted">
         {model.name || "Unnamed"} - {model.fields.length} fields - unsaved
@@ -72,6 +105,8 @@ export default function VersionPanel({
   const current = useStructStore((s) => s.currentModel);
   const saveVersion = useStructStore((s) => s.saveVersion);
   const loadVersion = useStructStore((s) => s.loadVersion);
+  const previewVersionId = useStructStore((s) => s.previewVersionId);
+  const setPreviewVersion = useStructStore((s) => s.setPreviewVersion);
   const renameVersion = useStructStore((s) => s.renameVersion);
   const deleteVersion = useStructStore((s) => s.deleteVersion);
   const baseVersionId = useStructStore((s) => s.baseVersionId);
@@ -88,6 +123,17 @@ export default function VersionPanel({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const shareVersion = async (versionId: string, model: StructModel) => {
+    try {
+      await navigator.clipboard.writeText(buildShareUrl(model));
+      setCopiedId(versionId);
+      setTimeout(() => setCopiedId((id) => (id === versionId ? null : id)), 1500);
+    } catch {
+      setCopiedId(null);
+    }
+  };
 
   const startEdit = (id: string, label: string) => {
     setConfirmingId(null);
@@ -313,7 +359,11 @@ export default function VersionPanel({
       }
     >
       <ul className="space-y-2">
-        <LiveCard model={current} />
+        <LiveCard
+          model={current}
+          active={previewVersionId === null}
+          onClick={() => setPreviewVersion(null)}
+        />
         {versions.length === 0 ? (
           <li className="break-words rounded-lg border border-border bg-surface p-2.5 text-sm text-muted">
             No saved snapshots yet.
@@ -322,11 +372,16 @@ export default function VersionPanel({
           versions.map((v, idx) => {
             const isEditing = editingId === v.id;
             const isConfirming = confirmingId === v.id;
+            const isPreviewing = previewVersionId === v.id;
 
             return (
               <li
                 key={v.id}
-                className="rounded-lg border border-border bg-surface p-2.5 transition-colors hover:border-accent/50"
+                className={`rounded-lg border p-2.5 transition-colors ${
+                  isPreviewing
+                    ? "border-accent bg-accent/10"
+                    : "border-border bg-surface hover:border-accent/50"
+                }`}
               >
                 {isEditing ? (
                   <div className="space-y-2">
@@ -380,13 +435,20 @@ export default function VersionPanel({
                   <div className="flex items-start justify-between gap-2">
                     <button
                       type="button"
-                      onClick={() => loadVersion(v.id)}
+                      onClick={() => setPreviewVersion(v.id)}
                       onDoubleClick={() => startEdit(v.id, v.label)}
                       className="block min-w-0 flex-1 text-left"
-                      title="Restore into editor. Double-click to rename."
+                      title="Preview this snapshot (read-only). Double-click to rename."
                     >
-                      <span className="block min-w-0 truncate text-sm font-semibold">
-                        {v.label}
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span className="min-w-0 truncate text-sm font-semibold">
+                          {v.label}
+                        </span>
+                        {isPreviewing && (
+                          <span className="shrink-0 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-accent">
+                            Viewing
+                          </span>
+                        )}
                       </span>
                       <span
                         className="mt-0.5 block text-xs text-muted"
@@ -404,6 +466,20 @@ export default function VersionPanel({
                       onClick={(e) => e.stopPropagation()}
                       onDoubleClick={(e) => e.stopPropagation()}
                     >
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className={
+                          copiedId === v.id
+                            ? "text-accent"
+                            : "text-muted hover:text-foreground"
+                        }
+                        aria-label="Copy a shareable link to this version"
+                        title={copiedId === v.id ? "Link copied!" : "Copy share link"}
+                        onClick={() => shareVersion(v.id, v.model)}
+                      >
+                        <LinkIcon />
+                      </Button>
                       <Button
                         variant="ghost"
                         size="icon"

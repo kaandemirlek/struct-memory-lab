@@ -4,6 +4,7 @@ import LayoutVisualizer from "@/components/LayoutVisualizer";
 import OptimizerPanel from "@/components/OptimizerPanel";
 import DiffView from "@/components/DiffView";
 import WarningsPanel from "@/components/WarningsPanel";
+import AnnotationsPanel from "@/components/AnnotationsPanel";
 
 export type WorkspaceTab = "edit" | "compare";
 
@@ -43,13 +44,14 @@ export default function MiddleWorkspace({
         <>
           <LayoutVisualizer mode="edit" />
           <OptimizerPanel />
+          <AnnotationsPanel />
         </>
       ) : (
         <>
           <LayoutVisualizer mode="compare" />
           <div className="space-y-4">
-            <WarningsPanel />
             <DiffView />
+            <WarningsPanel />
           </div>
         </>
       )}

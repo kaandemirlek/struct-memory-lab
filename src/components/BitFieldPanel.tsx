@@ -85,6 +85,15 @@ function BitInspector({
   const setMeanings = (next: typeof meanings) =>
     updateBitField(field.id, bit.id, { meanings: next });
 
+  // Meaning değeri için izinli aralık — signed 'int' alanda negatif olabilir.
+  //   uint/enum/flag → 0..2^w-1 ;  int → -2^(w-1)..2^(w-1)-1  (bkz. bitfields.ts)
+  const meaningKind = bit.kind ?? (bit.width === 1 ? "flag" : "uint");
+  const valueMin = meaningKind === "int" ? -(2 ** Math.min(bit.width - 1, 30)) : 0;
+  const valueMax =
+    meaningKind === "int"
+      ? 2 ** Math.min(bit.width - 1, 30) - 1
+      : 2 ** Math.min(bit.width, 30) - 1;
+
   return (
     <div className="mt-4 rounded-xl border border-border bg-surface-muted/50 p-3">
       <div className="mb-3 flex items-center justify-between gap-3">
@@ -141,13 +150,15 @@ function BitInspector({
             <div key={index} className="flex items-center gap-1.5">
               <input
                 type="number"
-                min={0}
-                max={2 ** Math.min(bit.width, 30) - 1}
+                min={valueMin}
+                max={valueMax}
                 value={meaning.value}
                 onChange={(event) =>
                   setMeanings(
                     meanings.map((item, i) =>
-                      i === index ? { ...item, value: Math.max(0, Number(event.target.value) || 0) } : item
+                      i === index
+                        ? { ...item, value: Math.max(valueMin, Number(event.target.value) || 0) }
+                        : item
                     )
                   )
                 }

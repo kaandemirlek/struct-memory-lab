@@ -44,15 +44,52 @@ export const TYPE_INFO: Record<CppPrimitive, { size: number; align: number }> = 
 };
 
 // ---------------------------------------------------------------------------
+// Bir alanın tipi: ya sabit genişlikli primitive, ya da iç içe (nested) struct.
+// "struct" olduğunda Field.nested dolu olur.
+// ---------------------------------------------------------------------------
+export type FieldType = CppPrimitive | "struct";
+
+// ---------------------------------------------------------------------------
 // Bir struct içindeki tek bir alan (field).
 // ---------------------------------------------------------------------------
 export interface Field {
   /** Stabil kimlik — drag-drop ve diff için şart (isim değişince bile aynı kalır). */
   id: string;
   name: string;
-  type: CppPrimitive;
-  /** Dizi uzunluğu. Tekil alan için 1, dizi için >1 (örn. uint8_t name[16]). */
-  arrayLength: number;
+  type: FieldType; // uint32_t, double, ... veya "struct" (nested)
+  arrayLength: number; // Dizi uzunluğu. Tekil alan için 1, dizi için >1 (örn. uint8_t name[16]).
+  /** type === "struct" iken iç içe struct modeli (özyinelemeli). */
+  nested?: StructModel;
+  /**
+   * Bit seviyesinde semantik alanlar (yalnızca unsigned integer tiplerde anlamlı).
+   * Fiziksel yerleşimi (computeLayout) DEĞİŞTİRMEZ — byte'ların bir YORUM katmanıdır.
+   * Savunma/gömülü: status word'ler, telemetri bayrakları, donanım register'ları.
+   */
+  bitFields?: BitField[];
+}
+
+// ---------------------------------------------------------------------------
+// Bit seviyesinde semantik alan (status word yorumu).
+//   Örn: statusWords[0].bit0 -> irCameraFail (0=OK, 1=FAIL)
+// ---------------------------------------------------------------------------
+/** Bir bit diliminin yorumu (tip). float/double yoktur — bitler tamsayı ailesidir. */
+export type BitFieldKind = "flag" | "uint" | "int" | "enum";
+
+export interface BitField {
+  id: string;
+  name: string; // semantik ad: "irCameraFail", "operationMode"
+  wordIndex: number; // dizi/word indeksi (tekil alan için 0)
+  startBit: number; // word içinde 0-tabanlı başlangıç biti
+  width: number; // bit sayısı (1 = bayrak, >1 = çok-bitli alan)
+  /** Yorum/tip: flag (1b) / uint / int (signed) / enum. */
+  kind?: BitFieldKind;
+  /** Değer anlamları: [{value:0,label:"OK"},{value:1,label:"FAIL"}] */
+  meanings?: BitMeaning[];
+}
+
+export interface BitMeaning {
+  value: number;
+  label: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -69,13 +106,21 @@ export interface StructModel {
 export interface FieldLayout {
   fieldId: string;
   name: string;
-  type: CppPrimitive;
+  type: FieldType;
+  /** Gösterim etiketi: "uint32_t" ya da nested için struct adı ("Vec3"). */
+  typeName?: string;
   /** Struct başından itibaren byte cinsinden başlangıç. */
   offset: number;
   /** Bu alanın kapladığı toplam byte (dizi dahil). */
   size: number;
+  /** C/C++ dizi uzunluğu (tekil alan için 1). */
+  arrayLength?: number;
+  /** Dizideki tek bir elemanın byte boyutu. */
+  elementSize?: number;
   /** Bu alandan ÖNCE eklenen padding byte sayısı (hizalama için). */
   paddingBefore: number;
+  /** type === "struct" iken iç içe yerleşim (ileride görselde açmak için). */
+  nested?: LayoutResult;
 }
 
 export interface LayoutResult {

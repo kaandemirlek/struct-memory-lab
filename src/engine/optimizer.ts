@@ -13,17 +13,24 @@
 //     (Optimize panelinde "şu kadar byte kazanırsın" göstermek için).
 // ============================================================================
 
-import type { ComputeLayout, StructModel } from "@/types";
+import type { ComputeLayout, Field, StructModel } from "@/types";
 import { TYPE_INFO } from "@/types";
 import { computeLayout } from "@/engine/layout";
+
+// Bir alanın hizalaması: nested struct ise kendi layout'undan, değilse TYPE_INFO'dan.
+function alignOf(f: Field): number {
+  if (f.type === "struct" && f.nested) return computeLayout(f.nested).alignment;
+  if (f.type !== "struct") return TYPE_INFO[f.type].align;
+  return 1;
+}
 
 /** Alanları hizalamaya göre büyükten küçüğe dizer (eşitlikte özgün sıra korunur). */
 export function optimizeStruct(model: StructModel): StructModel {
   const fields = model.fields
     .map((f, i) => ({ f, i })) // özgün index'i sakla (stabil sıralama için)
     .sort((a, b) => {
-      const da = TYPE_INFO[a.f.type].align;
-      const db = TYPE_INFO[b.f.type].align;
+      const da = alignOf(a.f);
+      const db = alignOf(b.f);
       if (da !== db) return db - da; // hizalama büyükten küçüğe
       return a.i - b.i; // eşitlikte özgün sırayı koru (stabil)
     })

@@ -85,4 +85,25 @@ describe("parseCpp", () => {
     const m = parseCpp("struct S { unsigned int scores[8]; };");
     expect(m.fields[0]).toMatchObject({ name: "scores", type: "uint32_t", arrayLength: 8 });
   });
+
+  it("nested struct'ı isimli referansla çözer (son struct = ana model)", () => {
+    const m = parseCpp(`
+      struct Vec3 { float x; float y; float z; };
+      struct Player { uint32_t id; Vec3 pos; bool alive; };
+    `);
+    expect(m.name).toBe("Player");
+    expect(m.fields.map((f) => f.type)).toEqual(["uint32_t", "struct", "bool"]);
+    expect(m.fields[1].nested?.name).toBe("Vec3");
+    expect(m.fields[1].nested?.fields).toHaveLength(3);
+  });
+
+  it("struct dizisi referansı ([N]) çalışır", () => {
+    const m = parseCpp("struct P { float v; }; struct Q { P items[4]; };");
+    expect(m.fields[0]).toMatchObject({ type: "struct", arrayLength: 4 });
+    expect(m.fields[0].nested?.name).toBe("P");
+  });
+
+  it("tanımsız struct tipinde hata fırlatır", () => {
+    expect(() => parseCpp("struct Q { Unknown u; };")).toThrow(/Bilinmeyen tip/);
+  });
 });

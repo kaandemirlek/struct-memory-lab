@@ -7,10 +7,17 @@ import { parseCpp } from "@/engine/parser";
 import Panel from "@/components/ui/Panel";
 import Button from "@/components/ui/Button";
 
-const SAMPLE = `struct Player {
+const SAMPLE = `struct Vec3 {
+    float x;
+    float y;
+    float z;
+};
+
+struct Player {
     uint32_t id;
     bool alive;
-    double health;
+    Vec3 position;
+    uint32_t age[5];
 };`;
 
 export default function ImportBox() {

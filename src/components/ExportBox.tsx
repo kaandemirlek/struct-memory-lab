@@ -5,13 +5,20 @@ import { useState } from "react";
 import { useStructStore } from "@/store/useStructStore";
 import { exportCpp } from "@/engine/exporter";
 import { validateStruct } from "@/engine/validation";
+import { analyzeBitWarnings } from "@/engine/bitfields";
 import Panel from "@/components/ui/Panel";
 import Button from "@/components/ui/Button";
 
 export default function ExportBox() {
   const model = useStructStore((s) => s.currentModel);
   const issues = validateStruct(model);
-  const hasErrors = issues.length > 0;
+
+  // Bit alanı uyarıları: 'danger' (overlap/OOB) export'u bloklar, 'warning' sadece bilgi verir.
+  const bitWarnings = analyzeBitWarnings(model);
+  const bitDangers = bitWarnings.filter((w) => w.severity === "danger");
+  const bitInfos = bitWarnings.filter((w) => w.severity !== "danger");
+
+  const hasErrors = issues.length > 0 || bitDangers.length > 0;
   const code = exportCpp(model);
   const [copied, setCopied] = useState(false);
 
@@ -53,11 +60,26 @@ export default function ExportBox() {
       {hasErrors && (
         <div className="mb-3 rounded-lg border border-danger/30 bg-danger/10 p-3 text-sm text-danger">
           <p className="mb-1 font-medium">
-            Fix {issues.length} {issues.length === 1 ? "issue" : "issues"} before exporting:
+            Fix {issues.length + bitDangers.length}{" "}
+            {issues.length + bitDangers.length === 1 ? "issue" : "issues"} before exporting:
           </p>
           <ul className="list-inside list-disc space-y-0.5">
             {issues.map((issue, i) => (
-              <li key={i}>{issue.message}</li>
+              <li key={`v${i}`}>{issue.message}</li>
+            ))}
+            {bitDangers.map((w, i) => (
+              <li key={`b${i}`}>{w.message}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {bitInfos.length > 0 && (
+        <div className="mb-3 rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm text-warning">
+          <p className="mb-1 font-medium">Bit alanı uyarıları (export'u engellemez):</p>
+          <ul className="list-inside list-disc space-y-0.5">
+            {bitInfos.map((w, i) => (
+              <li key={i}>{w.message}</li>
             ))}
           </ul>
         </div>

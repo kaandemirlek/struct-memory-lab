@@ -13,7 +13,7 @@
 // DETERMİNİSTİK → birim testi kolay (bkz. layout.test.ts).
 // ============================================================================
 
-import type { ComputeLayout, FieldLayout } from "@/types";
+import type { ComputeLayout, FieldLayout, LayoutResult } from "@/types";
 import { TYPE_INFO } from "@/types"; //primitives'in boyut ve hizalama bilgisi -> types'ta tanımlamıştık
 
 /** alignUp
@@ -33,8 +33,29 @@ export const computeLayout: ComputeLayout = (model) => { //types'ta tanımladı�
   let maxAlign = 1; // struct'ın hizalaması = en büyük alan hizalaması, başlangıçta 1 (bool) ile başlar
 
   for (const f of model.fields) {
+    // Bir alanın eleman boyutu/hizalaması: primitive ise TYPE_INFO'dan,
+    // nested struct ise ÖZYİNELEMELİ olarak kendi layout'undan gelir.
+    let elemSize: number;
+    let align: number;
+    let typeName: string;
+    let nested: LayoutResult | undefined;
+
+    if (f.type === "struct" && f.nested) {
+      nested = computeLayout(f.nested); // <-- özyineleme
+      elemSize = nested.totalSize; // tail padding dahil → struct dizilerinin hizası korunur
+      align = nested.alignment; // struct'ın hizalaması = en büyük üyesininki
+      typeName = f.nested.name || "struct";
+    } else if (f.type !== "struct") {
+      ({ size: elemSize, align } = TYPE_INFO[f.type]);
+      typeName = f.type;
+    } else {
+      // type "struct" ama nested yok (bozuk durum) → güvenli varsayım
+      elemSize = 0;
+      align = 1;
+      typeName = "struct";
+    }
+
     // Bir dizinin hizalaması, elemanının hizalamasıyla aynıdır.
-    const { size: elemSize, align } = TYPE_INFO[f.type]; //typeinfo'dan field'ın tipine göre boyut ve hizalama bilgisini alıyoruz
     const size = elemSize * Math.max(1, f.arrayLength); //arrayfield ise size = elemSize * arrayLength, değilse size = elemSize
 
     // Kural 2 + 3: alanı hizalı offset'e taşı, aradaki boşluğu say.
@@ -45,9 +66,13 @@ export const computeLayout: ComputeLayout = (model) => { //types'ta tanımladı�
       fieldId: f.id,
       name: f.name,
       type: f.type,
+      typeName,
       offset: aligned,
       size,
+      arrayLength: Math.max(1, f.arrayLength),
+      elementSize: elemSize,
       paddingBefore,
+      nested,
     });
 
     offset = aligned + size; //offset'i bir sonraki field için ilerlet

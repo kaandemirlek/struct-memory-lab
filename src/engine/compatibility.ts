@@ -21,16 +21,18 @@
 
 import type {
   AnalyzeCompatibility,
-  CppPrimitive,
+  Field,
   Warning,
   WarningSeverity,
 } from "@/types";
 import { TYPE_INFO } from "@/types";
 import { computeLayout } from "@/engine/layout";
 
-type Category = "signed" | "unsigned" | "float" | "bool" | "char";
+type Category = "signed" | "unsigned" | "float" | "bool" | "char" | "struct";
 
-function categoryOf(type: CppPrimitive): Category {
+function categoryOf(field: Field): Category {
+  if (field.type === "struct") return "struct";
+  const type = field.type;
   if (type === "float" || type === "double") return "float";
   if (type === "bool") return "bool";
   if (type === "char") return "char";
@@ -38,14 +40,22 @@ function categoryOf(type: CppPrimitive): Category {
   return type.startsWith("u") ? "unsigned" : "signed";
 }
 
-/** Tip imzası, dizi sözdizimi dahil: "uint8_t[16]" ya da "uint32_t". */
-function typeSig(type: CppPrimitive, arrayLength: number): string {
-  return arrayLength > 1 ? `${type}[${arrayLength}]` : type;
+/** Tip imzası, dizi sözdizimi dahil: "uint8_t[16]" / "uint32_t" / "Vec3" (nested). */
+function typeSig(field: Field): string {
+  const base =
+    field.type === "struct" ? field.nested?.name.trim() || "struct" : field.type;
+  return field.arrayLength > 1 ? `${base}[${field.arrayLength}]` : base;
 }
 
-/** Alanın toplam byte boyutu (dizi dahil). */
-function byteSize(type: CppPrimitive, arrayLength: number): number {
-  return TYPE_INFO[type].size * Math.max(1, arrayLength);
+/** Alanın toplam byte boyutu (dizi + nested dahil). */
+function byteSize(field: Field): number {
+  const elem =
+    field.type === "struct"
+      ? field.nested
+        ? computeLayout(field.nested).totalSize
+        : 0
+      : TYPE_INFO[field.type].size;
+  return elem * Math.max(1, field.arrayLength);
 }
 
 export const analyzeCompatibility: AnalyzeCompatibility = (
@@ -89,10 +99,10 @@ export const analyzeCompatibility: AnalyzeCompatibility = (
     if (!fb) continue; // silme yukarıda ele alındı
     if (fa.type === fb.type && fa.arrayLength === fb.arrayLength) continue;
 
-    const sigA = typeSig(fa.type, fa.arrayLength);
-    const sigB = typeSig(fb.type, fb.arrayLength);
-    const sizeA = byteSize(fa.type, fa.arrayLength);
-    const sizeB = byteSize(fb.type, fb.arrayLength);
+    const sigA = typeSig(fa);
+    const sigB = typeSig(fb);
+    const sizeA = byteSize(fa);
+    const sizeB = byteSize(fb);
 
     if (sizeB < sizeA) {
       warnings.push({
@@ -100,8 +110,8 @@ export const analyzeCompatibility: AnalyzeCompatibility = (
         message: `Field "${fb.name}" (${sigA} → ${sigB}) is smaller and may truncate data.`,
       });
     } else if (sizeB === sizeA && fa.type !== fb.type) {
-      const catA = categoryOf(fa.type);
-      const catB = categoryOf(fb.type);
+      const catA = categoryOf(fa);
+      const catB = categoryOf(fb);
       if (catA !== catB && (catA === "float" || catB === "float")) {
         warnings.push({
           severity: "warning",

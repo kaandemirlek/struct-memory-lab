@@ -11,9 +11,11 @@
 
 import type { DiffEntry, DiffVersions, Field } from "@/types";
 
-/** Alanın tip imzası, dizi sözdizimi dahil:  "uint8_t[16]" ya da "uint32_t". */
+/** Alanın tip imzası, dizi sözdizimi dahil:  "uint8_t[16]" / "uint32_t" / "Vec3" (nested). */
 function typeSignature(field: Field): string {
-  return field.arrayLength > 1 ? `${field.type}[${field.arrayLength}]` : field.type;
+  const base =
+    field.type === "struct" ? field.nested?.name.trim() || "struct" : field.type;
+  return field.arrayLength > 1 ? `${base}[${field.arrayLength}]` : base;
 }
 
 export const diffVersions: DiffVersions = (a, b) => {

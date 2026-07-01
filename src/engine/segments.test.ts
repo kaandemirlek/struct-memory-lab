@@ -33,6 +33,22 @@ describe("toSegments", () => {
     expect(s.filter((x) => x.kind === "field").map((x) => x.colorIndex)).toEqual([0, 1, 2]);
   });
 
+  it("primitive diziyi ayrı, indekslenmiş eleman segmentlerine böler", () => {
+    const s = seg(struct(field("uint16_t", "samples", 3)));
+    expect(s).toHaveLength(3);
+    expect(s.map((x) => ({
+      name: x.name,
+      arrayIndex: x.arrayIndex,
+      offset: x.offset,
+      size: x.size,
+      colorIndex: x.colorIndex,
+    }))).toEqual([
+      { name: "samples", arrayIndex: 0, offset: 0, size: 2, colorIndex: 0 },
+      { name: "samples", arrayIndex: 1, offset: 2, size: 2, colorIndex: 0 },
+      { name: "samples", arrayIndex: 2, offset: 4, size: 2, colorIndex: 0 },
+    ]);
+  });
+
   it("değişmez: segment boyutları toplamı = totalSize", () => {
     const m = struct(field("bool"), field("double"), field("uint16_t", "x", 3));
     const layout = computeLayout(m);

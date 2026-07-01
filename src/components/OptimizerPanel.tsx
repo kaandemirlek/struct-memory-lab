@@ -1,49 +1,67 @@
-// OptimizerPanel.tsx  ← PERSON B
 "use client";
 
 import { useStructStore } from "@/store/useStructStore";
 import { optimizeLayout } from "@/engine/optimizer";
-import Panel from "@/components/ui/Panel";
+import { computeLayout } from "@/engine/layout";
+import { toSegments } from "@/engine/segments";
 import Button from "@/components/ui/Button";
+import MiniLayoutStrip from "@/components/MiniLayoutStrip";
 
 export default function OptimizerPanel() {
   const model = useStructStore((s) => s.currentModel);
   const setModel = useStructStore((s) => s.setModel);
 
   const result = optimizeLayout(model);
-  const improved = result.bytesSaved > 0;
+
+  if (model.fields.length < 2 || result.bytesSaved <= 0) return null;
+
+  // Stable color per field id so the same field keeps its color in both strips.
+  const colorById = new Map(model.fields.map((f, i) => [f.id, i]));
+  const colorIndexFor = (fieldId?: string) =>
+    fieldId !== undefined ? colorById.get(fieldId) ?? 0 : 0;
+
+  const currentLayout = computeLayout(model);
+  const optimizedLayout = computeLayout(result.optimizedModel);
+  const maxBytes = Math.max(currentLayout.totalSize, optimizedLayout.totalSize);
 
   return (
-    <Panel
-      title="Optimize"
-      description="Reorder fields by alignment to remove padding."
-    >
-      {model.fields.length < 2 ? (
-        <p className="text-sm text-muted">
-          Add a few fields to see optimization suggestions.
+    <div className="space-y-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm">
+          Reordering fields saves{" "}
+          <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+            {result.bytesSaved} bytes
+          </span>{" "}
+          <span className="text-muted">
+            ({result.currentSize} to {result.optimizedSize} B).
+          </span>
         </p>
-      ) : improved ? (
-        <div className="space-y-3">
-          <p className="text-sm">
-            Reordering shrinks the struct from{" "}
-            <span className="font-medium">{result.currentSize} B</span> to{" "}
-            <span className="font-medium text-emerald-600 dark:text-emerald-400">
-              {result.optimizedSize} B
-            </span>{" "}
-            <span className="text-muted">(saves {result.bytesSaved} B).</span>
-          </p>
-          <Button
-            variant="primary"
-            onClick={() => setModel(result.optimizedModel)}
-          >
-            Apply suggested order
-          </Button>
-        </div>
-      ) : (
-        <p className="text-sm text-muted">
-          Layout is already optimal — no padding to remove by reordering.
-        </p>
-      )}
-    </Panel>
+        <Button
+          variant="primary"
+          size="sm"
+          className="shrink-0"
+          onClick={() => setModel(result.optimizedModel)}
+        >
+          Apply
+        </Button>
+      </div>
+
+      <div className="space-y-2">
+        <MiniLayoutStrip
+          label="Current"
+          segments={toSegments(currentLayout)}
+          totalSize={currentLayout.totalSize}
+          maxBytes={maxBytes}
+          colorIndexFor={colorIndexFor}
+        />
+        <MiniLayoutStrip
+          label="Optimized"
+          segments={toSegments(optimizedLayout)}
+          totalSize={optimizedLayout.totalSize}
+          maxBytes={maxBytes}
+          colorIndexFor={colorIndexFor}
+        />
+      </div>
+    </div>
   );
 }

@@ -1,26 +1,21 @@
 // ============================================================================
 // exporter.ts  ← PERSON B
 // ============================================================================
-// GÖREV: StructModel'i tekrar GEÇERLİ, derlenebilir bir C++ .hpp metnine çevir.
-// (A'nın parser'ının tersi.)
-//
-// Beklenen çıktı:
-//   #pragma once
-//
-//   #include <cstdint>
-//
-//   struct Player {
-//       uint32_t id;
-//       bool alive;
-//       double health;
-//   };
-//
-// Dizi alanlar için:  uint8_t name[16];
+// StructModel'i (1) geçerli, derlenebilir C++ .hpp metnine ve (2) yapılandırılmış
+// JSON'a çevirir. C++ çıktısı nested struct'ları, bit-alanı makrolarını ve ABI
+// kilidi static_assert'lerini içerir; opsiyonel olarak alan başına offset/size
+// yorumları eklenir.
 // ============================================================================
 
-import type { CppPrimitive, ExportCpp, Field, StructModel } from "@/types";
+import type { CppPrimitive, Field, StructModel } from "@/types";
 import { bitsPerWord, isUnsignedInt } from "@/engine/bitfields";
 import { computeLayout } from "@/engine/layout";
+
+/** C++ .hpp dışa aktarımı için seçenekler. */
+export interface ExportCppOptions {
+  /** Alan başına offset/size yorumları + sizeof özeti ekle (varsayılan: true). */
+  comments?: boolean;
+}
 
 /** 4 boşluk girinti (C++ konvansiyonu). */
 const INDENT = "    ";
@@ -57,11 +52,19 @@ function fieldTypeName(field: Field): string {
   return field.type;
 }
 
-/** Tek bir alanı C++ satırına çevirir:  "    Vec3 position;" / "    uint8_t name[16];" */
-function formatField(field: Field): string {
+/** Girintisiz alan deklarasyonu: "Vec3 position;" / "uint8_t name[16];" */
+function declOf(field: Field): string {
   const suffix = field.arrayLength > 1 ? `[${field.arrayLength}]` : "";
-  return `${INDENT}${fieldTypeName(field)} ${field.name}${suffix};`;
+  return `${fieldTypeName(field)} ${field.name}${suffix};`;
 }
+
+/** Tek bir alanı girintili C++ satırına çevirir. */
+function formatField(field: Field): string {
+  return `${INDENT}${declOf(field)}`;
+}
+
+const padComment = (n: number) =>
+  `${INDENT}// ${n} ${n === 1 ? "byte" : "bytes"} padding`;
 
 /** Bir adı geçerli, büyük harfli C makro tanımlayıcısına çevirir. */
 function macroIdent(s: string): string {
@@ -71,7 +74,6 @@ function macroIdent(s: string): string {
 /**
  * width bit uzunluğundaki "hepsi 1" maskesinin hex gösterimi (0x öneki olmadan).
  * BigInt kullanmadan (ES hedefi düşük) nibble nibble kurulur; uint64_t (64 bit) güvenli.
- *   width 1 → "1", 3 → "7", 4 → "F", 8 → "FF", 64 → 16 tane F.
  */
 function onesMaskHex(width: number): string {
   if (width <= 0) return "0";
@@ -126,14 +128,12 @@ function formatBitMacros(model: StructModel): string[] {
 /**
  * Bir struct için bellek yerleşimini ABI kilidi olarak dondurur:
  *   static_assert(sizeof(X) == N, ...) + her alan için offsetof kontrolü.
- * Layout aracın kendi computeLayout'undan gelir → header'ı kullanan her derleyici
- * beklenen yerleşimden saparsa (alan eklendi/çıktı/sıra değişti) DERLEME PATLAR.
- * static_assert derleme-zamanı; çalışma-zamanı maliyeti yoktur.
+ * Header'ı kullanan derleyici beklenen yerleşimden saparsa DERLEME PATLAR.
  */
 function formatStaticAsserts(model: StructModel): string[] {
   const name = model.name.trim() || "Struct";
   const layout = computeLayout(model);
-  if (layout.fields.length === 0) return []; // alan yoksa doğrulanacak bir şey yok
+  if (layout.fields.length === 0) return [];
 
   const lines = [`// --- ${name} bellek yerleşimi doğrulaması (ABI kilidi) ---`];
   lines.push(
@@ -153,14 +153,36 @@ function needsCstddef(model: StructModel, nested: StructModel[]): boolean {
 }
 
 /** Bir struct'ın gövdesini ("struct X { ... };") satır satır üretir. */
-function formatStruct(model: StructModel): string[] {
+function formatStruct(model: StructModel, withComments: boolean): string[] {
   const name = model.name.trim() || "Struct";
   const lines = [`struct ${name} {`];
+
   if (model.fields.length === 0) {
-    lines.push(`${INDENT}// (alan yok)`);
+    lines.push(`${INDENT}// (no fields)`);
+    lines.push("};");
+    return lines;
+  }
+
+  if (withComments) {
+    const layout = computeLayout(model);
+    const decls = model.fields.map(declOf);
+    const width = Math.max(...decls.map((d) => d.length));
+
+    model.fields.forEach((field, i) => {
+      const fl = layout.fields[i];
+      if (fl.paddingBefore > 0) lines.push(padComment(fl.paddingBefore));
+      lines.push(
+        `${INDENT}${decls[i].padEnd(width)}  // offset ${fl.offset}, size ${fl.size}`
+      );
+    });
+
+    const last = layout.fields[layout.fields.length - 1];
+    const trailing = layout.totalSize - (last.offset + last.size);
+    if (trailing > 0) lines.push(padComment(trailing));
   } else {
     for (const field of model.fields) lines.push(formatField(field));
   }
+
   lines.push("};");
   return lines;
 }
@@ -183,7 +205,8 @@ function collectNested(
   }
 }
 
-export const exportCpp: ExportCpp = (model) => {
+export function exportCpp(model: StructModel, options: ExportCppOptions = {}): string {
+  const withComments = options.comments ?? true;
   const out: string[] = ["#pragma once"];
 
   // Nested tanımları önden topla (include kararları ve tanım sırası için gerekli).
@@ -197,7 +220,7 @@ export const exportCpp: ExportCpp = (model) => {
 
   // Bir struct tanımını, yerleşim doğrulamasını ve (varsa) bit makrolarını ekler.
   const pushStruct = (m: StructModel): void => {
-    out.push("", ...formatStruct(m));
+    out.push("", ...formatStruct(m, withComments));
     const asserts = formatStaticAsserts(m);
     if (asserts.length > 0) out.push("", ...asserts);
     const macros = formatBitMacros(m);
@@ -208,6 +231,39 @@ export const exportCpp: ExportCpp = (model) => {
   for (const def of nestedDefs) pushStruct(def);
   pushStruct(model);
 
-  // Dosyalar tek bir sondaki yeni satırla biter (POSIX konvansiyonu).
+  if (withComments) {
+    const layout = computeLayout(model);
+    out.push(
+      "",
+      `// sizeof = ${layout.totalSize} bytes, alignment = ${layout.alignment} bytes, padding = ${layout.totalPadding} bytes`
+    );
+  }
+
   return out.join("\n") + "\n";
-};
+}
+
+/** Modeli + hesaplanmış layout metadata'sını yapılandırılmış JSON olarak verir. */
+export function exportModelJson(model: StructModel): string {
+  const layout = computeLayout(model);
+  return JSON.stringify(
+    {
+      format: "struct-memory-lab",
+      version: 1,
+      struct: model,
+      layout: {
+        totalSize: layout.totalSize,
+        alignment: layout.alignment,
+        totalPadding: layout.totalPadding,
+        fields: layout.fields.map((f) => ({
+          name: f.name,
+          type: f.type,
+          offset: f.offset,
+          size: f.size,
+          paddingBefore: f.paddingBefore,
+        })),
+      },
+    },
+    null,
+    2
+  );
+}

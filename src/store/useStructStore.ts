@@ -58,16 +58,38 @@ const initialModel: StructModel = {
   ],
 };
 
+/**
+ * Bir alana (fieldId) ya da versiyona (versionId) bırakılan serbest not.
+ * ör. "bunu taşıma, serializer offset'e bağlı". Person B tarafı; paylaşılan
+ * types.ts sözleşmesine dokunmamak için burada tanımlı.
+ */
+export interface Annotation {
+  id: string;
+  targetKind: "field" | "version";
+  /** Hedefin kimliği: field.id ya da version.id. */
+  targetId: string;
+  text: string;
+  createdAt: string;
+}
+
 interface StructState {
   // --- ORTAK STATE ---
   /** Editörde üzerinde çalışılan struct. (A yazar, B okur.) */
   currentModel: StructModel;
   /** Kaydedilmiş versiyonlar (v1, v2, ...). (B yönetir.) */
   versions: Version[];
+  /** Alan/versiyon notları (takım yorumları). */
+  annotations: Annotation[];
   /** Karşılaştırmanın KAYNAK tarafı (From): seçili versiyon (null = en son). */
   baseVersionId: string | null;
   /** Karşılaştırmanın HEDEF tarafı (To): seçili versiyon (null = güncel düzenlemeler). */
   targetVersionId: string | null;
+  /**
+   * Edit Layout sekmesinde SALT-OKUNUR önizlenen versiyon (null = Live).
+   * currentModel'i DEĞİŞTİRMEZ; sadece hangi snapshot'ın görüntülendiğini tutar.
+   * Kalıcı değildir (persist edilmez) — sayfa yenilenince Live'a döner.
+   */
+  previewVersionId: string | null;
 
   // --- PERSON A action'ları (currentModel düzenleme) ---
   setModel: (model: StructModel) => void;
@@ -84,9 +106,17 @@ interface StructState {
   updateBitField: (fieldId: string, bitId: string, patch: Partial<Omit<BitField, "id">>) => void;
   removeBitField: (fieldId: string, bitId: string) => void;
 
+  // --- Geçmiş (undo/redo) ---
+  past: StructModel[];
+  future: StructModel[];
+  undo: () => void;
+  redo: () => void;
+
   // --- PERSON B action'ları (versiyon yönetimi) ---
   saveVersion: () => void;
   loadVersion: (versionId: string) => void;
+  /** Edit Layout'ta bir versiyonu salt-okunur önizle (null = Live). */
+  setPreviewVersion: (versionId: string | null) => void;
   /** Karşılaştırma kaynağını (From) seç (null = en son kaydedilen versiyon). */
   setBaseVersion: (versionId: string | null) => void;
   /** Karşılaştırma hedefini (To) seç (null = güncel düzenlemeler). */
@@ -95,152 +125,222 @@ interface StructState {
   renameVersion: (versionId: string, label: string) => void;
   /** Bir versiyonu sil; taban olarak seçiliyse seçimi temizle. */
   deleteVersion: (versionId: string) => void;
+
+  // --- Notlar (takım yorumları) ---
+  /** Bir alana/versiyona not ekle. */
+  addAnnotation: (targetKind: "field" | "version", targetId: string, text: string) => void;
+  /** Bir notun metnini güncelle. */
+  updateAnnotation: (id: string, text: string) => void;
+  /** Bir notu sil. */
+  removeAnnotation: (id: string) => void;
 }
 
 export const useStructStore = create<StructState>()(
   persist(
-    (set, get) => ({
-  currentModel: initialModel,
-  versions: [],
-  baseVersionId: null,
-  targetVersionId: null,
+    (set, get) => {
+      const MAX_HISTORY = 100;
+      // currentModel'i değiştir ve önceki halini undo için kaydet.
+      const editModel = (transform: (m: StructModel) => StructModel) =>
+        set((s) => ({
+          currentModel: transform(s.currentModel),
+          past: [...s.past, s.currentModel].slice(-MAX_HISTORY),
+          future: [],
+          // Herhangi bir düzenleme önizlemeden çıkar → Live görünümüne dön.
+          previewVersionId: null,
+        }));
 
-  // -------------------------------------------------------------------------
-  // PERSON A — currentModel düzenleme action'ları
-  // -------------------------------------------------------------------------
-  setModel: (model) => set({ currentModel: model }),
+      return {
+        currentModel: initialModel,
+        versions: [],
+        annotations: [],
+        baseVersionId: null,
+        targetVersionId: null,
+        previewVersionId: null,
+        past: [],
+        future: [],
 
-  setStructName: (name) =>
-    set((s) => ({ currentModel: { ...s.currentModel, name } })),
+        // -----------------------------------------------------------------
+        // PERSON A — currentModel düzenleme (her biri undo geçmişi tutar)
+        // -----------------------------------------------------------------
+        setModel: (model) => editModel(() => model),
 
-  addField: () =>
-    set((s) => ({
-      currentModel: {
-        ...s.currentModel,
-        fields: [
-          ...s.currentModel.fields,
-          { id: makeId("f"), name: "newField", type: "int32_t", arrayLength: 1 },
-        ],
-      },
-    })),
+        setStructName: (name) => editModel((m) => ({ ...m, name })),
 
-  updateField: (id, patch) =>
-    set((s) => ({
-      currentModel: {
-        ...s.currentModel,
-        fields: s.currentModel.fields.map((f) =>
-          f.id === id ? { ...f, ...patch } : f
-        ),
-      },
-    })),
+        addField: () =>
+          editModel((m) => ({
+            ...m,
+            fields: [
+              ...m.fields,
+              { id: makeId("f"), name: "newField", type: "int32_t", arrayLength: 1 },
+            ],
+          })),
 
-  removeField: (id) =>
-    set((s) => ({
-      currentModel: {
-        ...s.currentModel,
-        fields: s.currentModel.fields.filter((f) => f.id !== id),
-      },
-    })),
+        updateField: (id, patch) =>
+          editModel((m) => ({
+            ...m,
+            fields: m.fields.map((f) => (f.id === id ? { ...f, ...patch } : f)),
+          })),
 
-  reorderFields: (fromIndex, toIndex) =>
-    set((s) => {
-      const fields = [...s.currentModel.fields];
-      const [moved] = fields.splice(fromIndex, 1);
-      fields.splice(toIndex, 0, moved);
-      return { currentModel: { ...s.currentModel, fields } };
-    }),
+        removeField: (id) =>
+          editModel((m) => ({
+            ...m,
+            fields: m.fields.filter((f) => f.id !== id),
+          })),
 
-  // --- bit alanları (status word semantiği) ---
-  addBitField: (fieldId, placement) =>
-    set((s) => ({
-      currentModel: {
-        ...s.currentModel,
-        fields: mapFieldById(s.currentModel.fields, fieldId, (f) => {
-          const existing = f.bitFields ?? [];
-          // word0'da bir sonraki boş bit'e yerleştir (anında çakışmayı azalt).
-          const nextStart = existing
-            .filter((b) => b.wordIndex === 0)
-            .reduce((m, b) => Math.max(m, b.startBit + b.width), 0);
-          const nb: BitField = {
-            id: makeId("bit"),
-            name: `status_${placement?.wordIndex ?? 0}_${placement?.startBit ?? nextStart}`,
-            wordIndex: placement?.wordIndex ?? 0,
-            startBit: placement?.startBit ?? nextStart,
-            width: placement?.width ?? 1,
-            meanings: [],
-          };
-          return { ...f, bitFields: [...existing, nb] };
-        }),
-      },
-    })),
+        reorderFields: (fromIndex, toIndex) =>
+          editModel((m) => {
+            const fields = [...m.fields];
+            const [moved] = fields.splice(fromIndex, 1);
+            fields.splice(toIndex, 0, moved);
+            return { ...m, fields };
+          }),
 
-  updateBitField: (fieldId, bitId, patch) =>
-    set((s) => ({
-      currentModel: {
-        ...s.currentModel,
-        fields: mapFieldById(s.currentModel.fields, fieldId, (f) => ({
-          ...f,
-          bitFields: (f.bitFields ?? []).map((b) =>
-            b.id === bitId ? { ...b, ...patch } : b
-          ),
-        })),
-      },
-    })),
+        // --- bit alanları (status word semantiği) ---
+        addBitField: (fieldId, placement) =>
+          editModel((m) => ({
+            ...m,
+            fields: mapFieldById(m.fields, fieldId, (f) => {
+              const existing = f.bitFields ?? [];
+              // word0'da bir sonraki boş bit'e yerleştir (anında çakışmayı azalt).
+              const nextStart = existing
+                .filter((b) => b.wordIndex === 0)
+                .reduce((mx, b) => Math.max(mx, b.startBit + b.width), 0);
+              const nb: BitField = {
+                id: makeId("bit"),
+                name: `status_${placement?.wordIndex ?? 0}_${placement?.startBit ?? nextStart}`,
+                wordIndex: placement?.wordIndex ?? 0,
+                startBit: placement?.startBit ?? nextStart,
+                width: placement?.width ?? 1,
+                meanings: [],
+              };
+              return { ...f, bitFields: [...existing, nb] };
+            }),
+          })),
 
-  removeBitField: (fieldId, bitId) =>
-    set((s) => ({
-      currentModel: {
-        ...s.currentModel,
-        fields: mapFieldById(s.currentModel.fields, fieldId, (f) => ({
-          ...f,
-          bitFields: (f.bitFields ?? []).filter((b) => b.id !== bitId),
-        })),
-      },
-    })),
+        updateBitField: (fieldId, bitId, patch) =>
+          editModel((m) => ({
+            ...m,
+            fields: mapFieldById(m.fields, fieldId, (f) => ({
+              ...f,
+              bitFields: (f.bitFields ?? []).map((b) =>
+                b.id === bitId ? { ...b, ...patch } : b
+              ),
+            })),
+          })),
 
-  // -------------------------------------------------------------------------
-  // PERSON B — versiyon yönetimi action'ları
-  // -------------------------------------------------------------------------
-  saveVersion: () =>
-    set((s) => {
-      const label = `v${s.versions.length + 1}`;
-      const snapshot: Version = {
-        id: makeId("ver"),
-        label,
-        // Derin kopya: sonradan editörde yapılan değişiklik versiyonu bozmasın.
-        model: structuredClone(get().currentModel),
-        createdAt: new Date().toISOString(),
+        removeBitField: (fieldId, bitId) =>
+          editModel((m) => ({
+            ...m,
+            fields: mapFieldById(m.fields, fieldId, (f) => ({
+              ...f,
+              bitFields: (f.bitFields ?? []).filter((b) => b.id !== bitId),
+            })),
+          })),
+
+        // -----------------------------------------------------------------
+        // Undo / redo
+        // -----------------------------------------------------------------
+        undo: () =>
+          set((s) => {
+            if (s.past.length === 0) return {};
+            const previous = s.past[s.past.length - 1];
+            return {
+              currentModel: previous,
+              past: s.past.slice(0, -1),
+              future: [s.currentModel, ...s.future].slice(0, MAX_HISTORY),
+            };
+          }),
+
+        redo: () =>
+          set((s) => {
+            if (s.future.length === 0) return {};
+            const next = s.future[0];
+            return {
+              currentModel: next,
+              past: [...s.past, s.currentModel].slice(-MAX_HISTORY),
+              future: s.future.slice(1),
+            };
+          }),
+
+        // -----------------------------------------------------------------
+        // PERSON B — versiyon yönetimi
+        // -----------------------------------------------------------------
+        saveVersion: () =>
+          set((s) => {
+            const label = `v${s.versions.length + 1}`;
+            const snapshot: Version = {
+              id: makeId("ver"),
+              label,
+              model: structuredClone(get().currentModel),
+              createdAt: new Date().toISOString(),
+            };
+            return { versions: [...s.versions, snapshot] };
+          }),
+
+        loadVersion: (versionId) => {
+          const v = get().versions.find((x) => x.id === versionId);
+          // editModel önizlemeyi otomatik temizler (Live'a döner).
+          if (v) editModel(() => structuredClone(v.model));
+        },
+
+        setPreviewVersion: (versionId) => set({ previewVersionId: versionId }),
+
+        setBaseVersion: (versionId) => set({ baseVersionId: versionId }),
+
+        setTargetVersion: (versionId) => set({ targetVersionId: versionId }),
+
+        renameVersion: (versionId, label) =>
+          set((s) => ({
+            versions: s.versions.map((v) =>
+              v.id === versionId ? { ...v, label } : v
+            ),
+          })),
+
+        deleteVersion: (versionId) =>
+          set((s) => ({
+            versions: s.versions.filter((v) => v.id !== versionId),
+            baseVersionId:
+              s.baseVersionId === versionId ? null : s.baseVersionId,
+            targetVersionId:
+              s.targetVersionId === versionId ? null : s.targetVersionId,
+            previewVersionId:
+              s.previewVersionId === versionId ? null : s.previewVersionId,
+            // O versiyona ait notları da temizle (versiyon silme geri alınamaz).
+            annotations: s.annotations.filter(
+              (a) => !(a.targetKind === "version" && a.targetId === versionId)
+            ),
+          })),
+
+        // -----------------------------------------------------------------
+        // Notlar (takım yorumları)
+        // -----------------------------------------------------------------
+        addAnnotation: (targetKind, targetId, text) =>
+          set((s) => ({
+            annotations: [
+              ...s.annotations,
+              {
+                id: makeId("note"),
+                targetKind,
+                targetId,
+                text,
+                createdAt: new Date().toISOString(),
+              },
+            ],
+          })),
+
+        updateAnnotation: (id, text) =>
+          set((s) => ({
+            annotations: s.annotations.map((a) =>
+              a.id === id ? { ...a, text } : a
+            ),
+          })),
+
+        removeAnnotation: (id) =>
+          set((s) => ({
+            annotations: s.annotations.filter((a) => a.id !== id),
+          })),
       };
-      return { versions: [...s.versions, snapshot] };
-    }),
-
-  loadVersion: (versionId) =>
-    set((s) => {
-      const v = s.versions.find((x) => x.id === versionId);
-      if (!v) return {};
-      return { currentModel: structuredClone(v.model) };
-    }),
-
-  setBaseVersion: (versionId) => set({ baseVersionId: versionId }),
-
-  setTargetVersion: (versionId) => set({ targetVersionId: versionId }),
-
-  renameVersion: (versionId, label) =>
-    set((s) => ({
-      versions: s.versions.map((v) =>
-        v.id === versionId ? { ...v, label } : v
-      ),
-    })),
-
-  deleteVersion: (versionId) =>
-    set((s) => ({
-      versions: s.versions.filter((v) => v.id !== versionId),
-      baseVersionId:
-        s.baseVersionId === versionId ? null : s.baseVersionId,
-      targetVersionId:
-        s.targetVersionId === versionId ? null : s.targetVersionId,
-    })),
-    }),
+    },
     {
       name: "struct-memory-lab",
       storage: createJSONStorage(() => localStorage),
@@ -248,6 +348,7 @@ export const useStructStore = create<StructState>()(
       partialize: (state) => ({
         currentModel: state.currentModel,
         versions: state.versions,
+        annotations: state.annotations,
         baseVersionId: state.baseVersionId,
         targetVersionId: state.targetVersionId,
       }),
@@ -262,6 +363,9 @@ export const useStructStore = create<StructState>()(
 //   Sentinel: bir taraf bir versiyon yerine "güncel düzenlemeler" olabilir.
 // ----------------------------------------------------------------------------
 export const CURRENT_EDITS = "__current__";
+
+/** Display label for the live (unsaved) working state. */
+export const CURRENT_EDITS_LABEL = "Live";
 
 export interface ResolvedComparison {
   fromModel: StructModel | undefined;
@@ -294,7 +398,7 @@ export function resolveComparison(
   let fromVersionId: string | undefined;
   if (baseVersionId === CURRENT_EDITS) {
     fromModel = currentModel;
-    fromLabel = "current edits";
+    fromLabel = CURRENT_EDITS_LABEL;
     fromValue = CURRENT_EDITS;
     fromVersionId = undefined;
   } else {
@@ -323,7 +427,7 @@ export function resolveComparison(
     toVersionId = target.id;
   } else {
     toModel = currentModel;
-    toLabel = "current edits";
+    toLabel = CURRENT_EDITS_LABEL;
     toValue = CURRENT_EDITS;
     toVersionId = undefined;
   }

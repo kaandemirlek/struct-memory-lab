@@ -1,54 +1,91 @@
-# 🧩 Struct Memory Lab
+# Struct Memory Lab
 
-C++ struct'larını parse eden, bellek yerleşimini (offset/padding/size) gösteren,
-versiyonlayan, diff/uyumluluk uyarısı üreten ve tekrar `.hpp` olarak dışa aktaran
-bir araç. İki kişilik staj projesi — **dikey slice** modeliyle bölündü.
+A web tool for safely evolving a C++ struct. Import a struct, **see its exact memory layout** (offsets, padding, alignment, size), edit it, snapshot versions over time, and get clear warnings when a change would break binary compatibility — before it reaches production.
 
-## Hızlı başlangıç
+It's designed so that even people who aren't systems experts can understand and review a struct change: the complexity of alignment and padding is shown visually, and an optional AI assistant explains things in plain language.
 
-```bash
-npm install      # bağımlılıklar (Node 24 LTS)
-npm run dev      # http://localhost:3000
-npm run build    # production build (CI öncesi kontrol)
-npx tsc --noEmit # tip kontrolü
-```
+> The memory layout is computed by a deterministic engine (standard x86‑64 rules). The AI assistant only *explains* that output — it never computes the layout itself.
 
-## Mimari — iki dikey slice
+## Features
 
-Her kişi bir özelliği **uçtan uca** (logic + UI) sahiplenir.
+- **Import** a C++ struct by pasting a header (`.h` / `.hpp`).
+- **Memory layout visualizer** — proportional, color-coded byte map with offsets, padding, and a zoom control.
+- **Field editor** — rename fields, change types, and drag to reorder, with the layout updating live.
+- **Undo / redo** for every edit.
+- **Versioning** — save, restore, rename, and delete snapshots. Preview an old snapshot read-only without disturbing your working copy.
+- **Compare** any two versions (or your live edits): a color-coded diff plus a **binary-compatibility report** (offset shifts, truncation, size/alignment changes, with a breaking / risky / compatible verdict).
+- **Layout optimizer** — suggests a field reordering that reduces padding and shows a visual before/after, one click to apply.
+- **AI assistant** — an "Ask AI" chat panel that answers questions about your struct ("why is there padding here?", "what changed in v2?"). Works offline with best-effort answers; optionally uses OpenAI for full conversational help.
+- **Shareable links** — copy a permalink that opens the tool at a specific struct/version, handy for code reviews and tickets.
+- **Annotations** — leave notes on specific fields or versions (e.g. "don't move this, the serializer depends on the offset").
+- **Export** — regenerate a C++ header, export JSON, or download a Markdown diff report.
+- **CLI / CI check** — fail a build when a struct change is binary-incompatible.
+- Work is **saved automatically** in your browser (localStorage) and survives reloads. Dark mode included.
 
-| | Person A — *Import & Layout* | Person B — *Versioning & Export* |
-|---|---|---|
-| **Backend** (`src/engine/`) | `parser.ts`, `layout.ts` | `versioning.ts`, `diff.ts`, `compatibility.ts`, `exporter.ts` |
-| **Frontend** (`src/components/`) | `ImportBox`, `FieldEditor`, `LayoutVisualizer` | `VersionPanel`, `DiffView`, `WarningsPanel`, `ExportBox` |
+## Quick start
 
-### Ortak temel (yalnızca birlikte değiştirin)
-- `src/types.ts` — **sözleşme**: veri şekilleri + fonksiyon imzaları.
-- `src/store/useStructStore.ts` — iki slice'ın buluştuğu **ortak hafıza**.
-- `src/app/page.tsx` — sol panel (A) / sağ panel (B) iskeleti.
-
-### Tek bağımlılık
-`compatibility.ts` (B) → `computeLayout` (A) gerektirir.
-A bitene kadar B, `src/engine/layout.mock.ts`'i kullanır; A bitince
-`compatibility.ts` içindeki import'u `@/engine/layout` yapmak yeterli (tek satır).
-
-## Git akışı (ikiniz aynı anda)
-
-`main` her zaman çalışır durumda kalır. Kimse doğrudan `main`'e push'lamaz.
+Requires Node.js 20+.
 
 ```bash
-git switch -c feat/a-parser     # kendi feature branch'in
-# ...çalış, commit'le...
-git push -u origin feat/a-parser
-# GitHub'da Pull Request aç → DİĞER kişi review eder → main'e merge
+npm install       # install dependencies
+npm run dev       # start the app at http://localhost:3000
 ```
 
-- **Person A** branch'leri: `feat/a-...`
-- **Person B** branch'leri: `feat/b-...`
-- Farklı dosyalara dokunduğunuz için merge çakışması olmaz —
-  `types.ts` ve store hariç (onları birlikte, ayrı bir PR'da değiştirin).
-- Birbirinizin PR'ını **review edin** — projenin diğer yarısını böyle öğrenirsiniz.
+Other scripts:
 
-## Yol haritası
-Milestone'lar ve görev dağılımı için bkz. proje planı (chat). Stub dosyalarındaki
-`// TODO (PERSON A/B)` işaretleri başlangıç noktanız.
+```bash
+npm run build     # production build
+npm start         # serve the production build
+npm test          # run the test suite (Vitest)
+npm run lint      # lint
+npx tsc --noEmit  # type-check
+```
+
+## Using the app
+
+1. **Import or edit** — paste a C++ struct with *Import*, or edit the fields directly on the left. The memory layout updates as you type.
+2. **Save versions** — snapshot the struct whenever you reach a meaningful state. Each snapshot is stored with a timestamp and change summary.
+3. **Compare** — switch to the *Compare Versions* tab and pick a *From* and *To* (any saved version, or your live edits). You'll see what changed and whether it's binary-compatible.
+4. **Optimize** — if reordering fields would save space, an optimizer panel shows the before/after and can apply it.
+5. **Share / annotate** — copy a version's permalink for review, and leave notes on fields or versions.
+6. **Export** — produce a `.hpp`, JSON, or a Markdown diff report from the *Export* menu.
+
+## AI assistant (optional)
+
+The **Ask AI** panel (bottom-right) is grounded on the deterministic engine's output, so its answers reflect your real layout.
+
+- **Offline by default** — with no configuration it gives best-effort answers about size, padding, alignment, fields, versions, and changes. No API key or network needed.
+- **Live mode** — for full conversational answers, copy `.env.example` to `.env.local`, set `AI_MODE=live`, and add an `OPENAI_API_KEY`. If a request fails (e.g. a network/proxy block) it falls back to offline mode automatically. In live mode, each reply shows its token usage and estimated cost.
+
+## CI integration (CLI)
+
+`struct-check` compares a baseline struct against a candidate and exits non-zero when the change is binary-incompatible, so a pipeline can gate merges:
+
+```bash
+# accepts .hpp headers or .json struct models
+npm run struct-check -- examples/player.v1.json examples/player.v2.json
+
+# options
+#   --strict   also fail on non-breaking "risky" warnings
+#   --json     emit machine-readable output
+```
+
+Exit codes: `0` compatible, `1` incompatible, `2` usage/parse error. See `examples/` for sample inputs.
+
+## Tech stack
+
+Next.js (App Router) · React · TypeScript · Zustand · Tailwind CSS · Vitest. Optional OpenAI for live AI answers.
+
+## Project structure
+
+```
+src/
+  engine/       Deterministic core: parser, layout, diff, compatibility,
+                optimizer, exporter, validation, versioning
+  components/   React UI (editor, visualizer, version panel, chat, ...)
+  store/        Shared Zustand store (persisted to localStorage)
+  lib/ai/       AI assistant layer (grounding, mock, prompt, client)
+  cli/          struct-check CI tool
+scripts/        CLI runner
+examples/       Sample struct models
+```

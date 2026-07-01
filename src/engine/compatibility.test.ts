@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
+  analyzeFieldImpacts,
   analyzeCompatibility,
+  generateCompatibilityReport,
   sortWarnings,
   summarizeWarnings,
 } from "@/engine/compatibility";
@@ -37,11 +39,16 @@ const packLayout: ComputeLayout = (model) => {
   return { fields, totalSize: offset, alignment, totalPadding: 0 };
 };
 
-const f = (id: string, name: string, type: Field["type"]): Field => ({
+const f = (
+  id: string,
+  name: string,
+  type: Field["type"],
+  arrayLength = 1
+): Field => ({
   id,
   name,
   type,
-  arrayLength: 1,
+  arrayLength,
 });
 const struct = (fields: Field[]): StructModel => ({ name: "S", fields });
 
@@ -132,6 +139,78 @@ describe("analyzeCompatibility", () => {
       severity: "info",
       message: 'Field "x" (uint16_t → uint32_t) is larger.',
     });
+  });
+  it("notes padding pattern changes with the real layout", () => {
+    const a = struct([f("1", "alive", "bool"), f("2", "score", "uint32_t")]);
+    const b = struct([f("1", "alive", "bool"), f("2", "score", "uint64_t")]);
+    const warnings = analyzeCompatibility(a, b);
+
+    expect(warnings).toContainEqual({
+      severity: "info",
+      message: 'Padding before field "score" changed from 3 to 7 bytes.',
+    });
+    expect(warnings).toContainEqual({
+      severity: "info",
+      message: "Total padding changed from 3 to 7 bytes.",
+    });
+  });
+});
+
+describe("generateCompatibilityReport", () => {
+  it("marks offset shifts as breaking binary compatibility", () => {
+    const a = struct([f("1", "id", "uint32_t"), f("2", "health", "float")]);
+    const b = struct([
+      f("3", "flag", "uint8_t"),
+      f("1", "id", "uint32_t"),
+      f("2", "health", "float"),
+    ]);
+
+    const report = generateCompatibilityReport(a, b, packLayout);
+
+    expect(report.binaryCompatible).toBe(false);
+    expect(report.verdict).toBe("breaking");
+    expect(report.breakingChanges).toContainEqual({
+      severity: "danger",
+      message: 'Field "id" moved from offset 0 to 1.',
+    });
+  });
+
+  it("keeps binary compatibility true when only warnings are present", () => {
+    const a = struct([f("1", "n", "int32_t")]);
+    const b = struct([f("1", "n", "uint32_t")]);
+
+    const report = generateCompatibilityReport(a, b, packLayout);
+
+    expect(report.binaryCompatible).toBe(true);
+    expect(report.verdict).toBe("risky");
+    expect(report.riskWarnings).toHaveLength(1);
+    expect(report.riskWarnings[0]).toMatchObject({ severity: "warning" });
+    expect(report.riskWarnings[0].message).toContain("changed signedness");
+  });
+});
+
+describe("analyzeFieldImpacts", () => {
+  it("creates badges for added, moved, resized, typed, and downstream fields", () => {
+    const a = struct([f("1", "id", "uint32_t"), f("2", "health", "float")]);
+    const b = struct([
+      f("3", "flag", "uint8_t"),
+      f("1", "id", "uint32_t"),
+      f("2", "health", "double"),
+    ]);
+
+    const byId = new Map(
+      analyzeFieldImpacts(a, b, packLayout).map((impact) => [
+        impact.fieldId,
+        impact.badges.map((badge) => badge.kind),
+      ])
+    );
+
+    expect(byId.get("3")).toContain("added");
+    expect(byId.get("3")).toContain("downstream");
+    expect(byId.get("1")).toContain("moved");
+    expect(byId.get("2")).toContain("moved");
+    expect(byId.get("2")).toContain("resized");
+    expect(byId.get("2")).toContain("type-changed");
   });
 });
 

@@ -30,12 +30,45 @@ import { computeLayout } from "@/engine/layout";
 
 type Category = "signed" | "unsigned" | "float" | "bool" | "char" | "struct";
 
+export type CompatibilityVerdict = "compatible" | "risky" | "breaking";
+
+export interface CompatibilityReport {
+  binaryCompatible: boolean;
+  verdict: CompatibilityVerdict;
+  warnings: Warning[];
+  summary: WarningSummary;
+  breakingChanges: Warning[];
+  riskWarnings: Warning[];
+  notes: Warning[];
+}
+
+export type FieldImpactKind =
+  | "added"
+  | "moved"
+  | "resized"
+  | "type-changed"
+  | "padding-changed"
+  | "downstream";
+
+export interface FieldImpactBadge {
+  kind: FieldImpactKind;
+  severity: WarningSeverity;
+  label: string;
+  detail: string;
+}
+
+export interface FieldImpact {
+  fieldId: string;
+  badges: FieldImpactBadge[];
+}
+
 function categoryOf(field: Field): Category {
   if (field.type === "struct") return "struct";
   const type = field.type;
   if (type === "float" || type === "double") return "float";
   if (type === "bool") return "bool";
   if (type === "char") return "char";
+  if (type === "size_t") return "unsigned"; // size_t işaretsizdir
   // int*_t vs uint*_t
   return type.startsWith("u") ? "unsigned" : "signed";
 }
@@ -155,6 +188,25 @@ export const analyzeCompatibility: AnalyzeCompatibility = (
     });
   }
 
+  // Padding pattern changes are useful compatibility clues. computeLayout always
+  // realigns fields, so these are notes rather than alignment violations.
+  for (const [id, fa] of beforeById) {
+    const fb = afterById.get(id);
+    if (fb && fa.paddingBefore !== fb.paddingBefore) {
+      warnings.push({
+        severity: "info",
+        message: `Padding before field "${fb.name}" changed from ${fa.paddingBefore} to ${fb.paddingBefore} bytes.`,
+      });
+    }
+  }
+
+  if (before.totalPadding !== after.totalPadding) {
+    warnings.push({
+      severity: "info",
+      message: `Total padding changed from ${before.totalPadding} to ${after.totalPadding} bytes.`,
+    });
+  }
+
   return warnings;
 };
 
@@ -193,4 +245,131 @@ export function summarizeWarnings(warnings: Warning[]): WarningSummary {
   };
   for (const w of warnings) summary[w.severity]++;
   return summary;
+}
+
+export function generateCompatibilityReport(
+  a: Parameters<AnalyzeCompatibility>[0],
+  b: Parameters<AnalyzeCompatibility>[1],
+  layoutFn = computeLayout
+): CompatibilityReport {
+  const warnings = sortWarnings(analyzeCompatibility(a, b, layoutFn));
+  const summary = summarizeWarnings(warnings);
+  const verdict: CompatibilityVerdict =
+    summary.danger > 0 ? "breaking" : summary.warning > 0 ? "risky" : "compatible";
+
+  return {
+    binaryCompatible: summary.danger === 0,
+    verdict,
+    warnings,
+    summary,
+    breakingChanges: warnings.filter((w) => w.severity === "danger"),
+    riskWarnings: warnings.filter((w) => w.severity === "warning"),
+    notes: warnings.filter((w) => w.severity === "info"),
+  };
+}
+
+function addBadge(
+  badges: FieldImpactBadge[],
+  kind: FieldImpactKind,
+  severity: WarningSeverity,
+  label: string,
+  detail: string
+) {
+  badges.push({ kind, severity, label, detail });
+}
+
+export function analyzeFieldImpacts(
+  a: Parameters<AnalyzeCompatibility>[0],
+  b: Parameters<AnalyzeCompatibility>[1],
+  layoutFn = computeLayout
+): FieldImpact[] {
+  const before = layoutFn(a);
+  const after = layoutFn(b);
+  const beforeById = new Map(before.fields.map((f) => [f.fieldId, f]));
+  const beforeFieldsById = new Map(a.fields.map((f) => [f.id, f]));
+  const afterFieldsById = new Map(b.fields.map((f) => [f.id, f]));
+
+  const laterCommonFieldMoved = (afterIndex: number) =>
+    after.fields.slice(afterIndex + 1).some((f) => {
+      const prev = beforeById.get(f.fieldId);
+      return prev && prev.offset !== f.offset;
+    });
+
+  const impacts: FieldImpact[] = [];
+
+  after.fields.forEach((fb, index) => {
+    const beforeLayout = beforeById.get(fb.fieldId);
+    const beforeField = beforeFieldsById.get(fb.fieldId);
+    const afterField = afterFieldsById.get(fb.fieldId);
+    const badges: FieldImpactBadge[] = [];
+
+    if (!beforeLayout || !beforeField || !afterField) {
+      addBadge(
+        badges,
+        "added",
+        "info",
+        "New",
+        `Field "${fb.name}" does not exist in the compared base version.`
+      );
+    } else {
+      if (beforeLayout.offset !== fb.offset) {
+        addBadge(
+          badges,
+          "moved",
+          "danger",
+          `Moved ${beforeLayout.offset}->${fb.offset}`,
+          `Field "${fb.name}" moved from offset ${beforeLayout.offset} to ${fb.offset}.`
+        );
+      }
+
+      if (beforeLayout.size !== fb.size) {
+        addBadge(
+          badges,
+          "resized",
+          beforeLayout.size > fb.size ? "danger" : "info",
+          `Size ${beforeLayout.size}->${fb.size}`,
+          `Field "${fb.name}" size changed from ${beforeLayout.size} to ${fb.size} bytes.`
+        );
+      }
+
+      if (
+        beforeField.type !== afterField.type ||
+        beforeField.arrayLength !== afterField.arrayLength
+      ) {
+        addBadge(
+          badges,
+          "type-changed",
+          beforeLayout.size > fb.size ? "danger" : "warning",
+          "Type",
+          `Field "${fb.name}" type changed from ${typeSig(beforeField)} to ${typeSig(afterField)}.`
+        );
+      }
+
+      if (beforeLayout.paddingBefore !== fb.paddingBefore) {
+        addBadge(
+          badges,
+          "padding-changed",
+          "info",
+          `Pad ${beforeLayout.paddingBefore}->${fb.paddingBefore}`,
+          `Padding before "${fb.name}" changed from ${beforeLayout.paddingBefore} to ${fb.paddingBefore} bytes.`
+        );
+      }
+    }
+
+    const oldEnd = beforeLayout ? beforeLayout.offset + beforeLayout.size : null;
+    const newEnd = fb.offset + fb.size;
+    if (badges.length > 0 && oldEnd !== newEnd && laterCommonFieldMoved(index)) {
+      addBadge(
+        badges,
+        "downstream",
+        "warning",
+        "Affects later",
+        `The byte range for "${fb.name}" changed, and later fields moved as a result.`
+      );
+    }
+
+    if (badges.length > 0) impacts.push({ fieldId: fb.fieldId, badges });
+  });
+
+  return impacts;
 }

@@ -24,6 +24,7 @@ export type CppPrimitive =
   | "uint32_t"
   | "int64_t"
   | "uint64_t"
+  | "size_t"
   | "float"
   | "double";
 
@@ -39,6 +40,8 @@ export const TYPE_INFO: Record<CppPrimitive, { size: number; align: number }> = 
   uint32_t: { size: 4, align: 4 },
   int64_t: { size: 8, align: 8 },
   uint64_t: { size: 8, align: 8 },
+  // size_t: platforma bağlı; 64-bit modelinde 8 byte (parser de bunu varsayar).
+  size_t: { size: 8, align: 8 },
   float: { size: 4, align: 4 },
   double: { size: 8, align: 8 },
 };

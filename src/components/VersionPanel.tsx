@@ -1,25 +1,119 @@
-// VersionPanel.tsx  ← PERSON B
 "use client";
 
-import { useState } from "react";
-import { useStructStore, resolveComparison } from "@/store/useStructStore";
+import { useState, type ReactNode } from "react";
+import {
+  CURRENT_EDITS,
+  CURRENT_EDITS_LABEL,
+  resolveComparison,
+  useStructStore,
+} from "@/store/useStructStore";
 import { timeAgo } from "@/engine/versioning";
+import { diffVersions, summarizeDiff } from "@/engine/diff";
+import type { StructModel, Version } from "@/types";
 import Panel from "@/components/ui/Panel";
 import Button from "@/components/ui/Button";
-import { RestoreIcon, PencilIcon, TrashIcon } from "@/components/ui/icons";
+import { RestoreIcon, PencilIcon, TrashIcon, LinkIcon } from "@/components/ui/icons";
+import { buildShareUrl } from "@/lib/share";
 
-export default function VersionPanel() {
+export type VersionPanelMode = "edit" | "compare";
+
+function VersionChangeSummary({ prev, curr }: { prev?: Version; curr: Version }) {
+  if (!prev) return <span className="text-muted">Initial snapshot</span>;
+  const s = summarizeDiff(diffVersions(prev.model, curr.model));
+  const parts: ReactNode[] = [];
+  if (s.added)
+    parts.push(
+      <span key="a" className="text-emerald-600 dark:text-emerald-400">
+        +{s.added}
+      </span>
+    );
+  if (s.removed)
+    parts.push(
+      <span key="r" className="text-danger">
+        -{s.removed}
+      </span>
+    );
+  if (s.changed)
+    parts.push(
+      <span key="c" className="text-warning">
+        ~{s.changed}
+      </span>
+    );
+  if (s.reordered)
+    parts.push(
+      <span key="o" className="text-muted">
+        reordered
+      </span>
+    );
+  if (parts.length === 0) return <span className="text-muted">no changes</span>;
+  return <>{parts}</>;
+}
+
+function LiveCard({
+  model,
+  active,
+  onClick,
+}: {
+  model: StructModel;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <li
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick();
+        }
+      }}
+      title="View your live, unsaved edits."
+      aria-pressed={active}
+      className={`cursor-pointer rounded-lg border border-dashed p-2.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+        active
+          ? "border-accent bg-accent/10"
+          : "border-accent/40 bg-accent/5 hover:border-accent/60"
+      }`}
+    >
+      <span className="flex min-w-0 items-center gap-2">
+        <span className="min-w-0 truncate text-sm font-semibold">
+          {CURRENT_EDITS_LABEL}
+        </span>
+        {active && (
+          <span className="shrink-0 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-accent">
+            Viewing
+          </span>
+        )}
+      </span>
+      <span className="mt-0.5 block min-w-0 truncate text-xs text-muted">
+        {model.name || "Unnamed"} - {model.fields.length} fields - unsaved
+      </span>
+    </li>
+  );
+}
+
+export default function VersionPanel({
+  mode = "edit",
+  collapseAction,
+}: {
+  mode?: VersionPanelMode;
+  collapseAction?: ReactNode;
+}) {
   const versions = useStructStore((s) => s.versions);
+  const current = useStructStore((s) => s.currentModel);
   const saveVersion = useStructStore((s) => s.saveVersion);
   const loadVersion = useStructStore((s) => s.loadVersion);
-  const current = useStructStore((s) => s.currentModel);
-  const setBaseVersion = useStructStore((s) => s.setBaseVersion);
-  const setTargetVersion = useStructStore((s) => s.setTargetVersion);
+  const previewVersionId = useStructStore((s) => s.previewVersionId);
+  const setPreviewVersion = useStructStore((s) => s.setPreviewVersion);
   const renameVersion = useStructStore((s) => s.renameVersion);
   const deleteVersion = useStructStore((s) => s.deleteVersion);
   const baseVersionId = useStructStore((s) => s.baseVersionId);
   const targetVersionId = useStructStore((s) => s.targetVersionId);
-  const { fromVersionId, toVersionId } = resolveComparison(
+  const setBaseVersion = useStructStore((s) => s.setBaseVersion);
+  const setTargetVersion = useStructStore((s) => s.setTargetVersion);
+  const { fromVersionId, toVersionId, fromValue, toValue } = resolveComparison(
     versions,
     current,
     baseVersionId,
@@ -29,6 +123,17 @@ export default function VersionPanel() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const shareVersion = async (versionId: string, model: StructModel) => {
+    try {
+      await navigator.clipboard.writeText(buildShareUrl(model));
+      setCopiedId(versionId);
+      setTimeout(() => setCopiedId((id) => (id === versionId ? null : id)), 1500);
+    } catch {
+      setCopiedId(null);
+    }
+  };
 
   const startEdit = (id: string, label: string) => {
     setConfirmingId(null);
@@ -54,61 +159,232 @@ export default function VersionPanel() {
     setConfirmingId(null);
   };
 
+  if (mode === "compare") {
+    const isCurrentFrom = fromValue === CURRENT_EDITS;
+    const isCurrentTo = toValue === CURRENT_EDITS;
+
+    return (
+      <Panel
+        title="Versions"
+        collapsible
+        defaultOpen
+        summary={
+          <span className="text-muted">
+            {versions.length} {versions.length === 1 ? "version" : "versions"}
+          </span>
+        }
+        actions={collapseAction}
+      >
+        {versions.length === 0 ? (
+          <p className="text-sm text-muted">
+            Save a version in Edit Layout before comparing.
+          </p>
+        ) : (
+          <ul className="space-y-2">
+            {versions.map((v) => {
+              const isFrom = fromVersionId === v.id;
+              const isTo = toVersionId === v.id;
+              const isEditing = editingId === v.id;
+
+              return (
+                <li
+                  key={v.id}
+                  onClick={isEditing ? undefined : () => setBaseVersion(v.id)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    if (!isEditing) setTargetVersion(v.id);
+                  }}
+                  title={
+                    isEditing
+                      ? undefined
+                      : "Left-click: From. Right-click: To. Double-click: rename."
+                  }
+                  className={`rounded-lg border p-2.5 transition-colors ${
+                    isEditing ? "" : "cursor-pointer hover:border-accent/50"
+                  } ${
+                    isFrom
+                      ? "border-accent bg-accent/10"
+                      : isTo
+                        ? "border-emerald-500/50 bg-emerald-500/10"
+                        : "border-border bg-surface"
+                  }`}
+                >
+                  {isEditing ? (
+                    <div className="space-y-2">
+                      <input
+                        autoFocus
+                        value={draft}
+                        onChange={(e) => setDraft(e.target.value)}
+                        onBlur={() => setEditingId(null)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") commitEdit();
+                          if (e.key === "Escape") setEditingId(null);
+                        }}
+                        className="w-full rounded-md border border-border bg-surface-muted px-2 py-1.5 text-sm outline-none focus:border-accent"
+                      />
+                      <div className="flex justify-end gap-1">
+                        <Button variant="primary" size="sm" onMouseDown={commitEdit}>
+                          Save
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onMouseDown={() => setEditingId(null)}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-start justify-between gap-2">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setBaseVersion(v.id);
+                        }}
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          startEdit(v.id, v.label);
+                        }}
+                        className="block min-w-0 flex-1 text-left"
+                        title="Left-click: From. Right-click row: To. Double-click: rename."
+                      >
+                        <span className="flex min-w-0 items-center gap-2">
+                          <span className="min-w-0 truncate text-sm font-semibold">
+                            {v.label}
+                          </span>
+                          {isFrom && (
+                            <span className="shrink-0 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-accent">
+                              From
+                            </span>
+                          )}
+                          {isTo && (
+                            <span className="shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-emerald-600 dark:text-emerald-400">
+                              To
+                            </span>
+                          )}
+                        </span>
+                        <span
+                          className="mt-0.5 block text-xs text-muted"
+                          title={new Date(v.createdAt).toLocaleString()}
+                        >
+                          {v.model.fields.length} fields - {timeAgo(v.createdAt)}
+                        </span>
+                      </button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-muted hover:text-foreground"
+                        aria-label="Rename this version"
+                        title="Rename"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          startEdit(v.id, v.label);
+                        }}
+                      >
+                        <PencilIcon />
+                      </Button>
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+
+            <li
+              role="button"
+              tabIndex={0}
+              onClick={() => setBaseVersion(CURRENT_EDITS)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setBaseVersion(CURRENT_EDITS);
+                }
+              }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setTargetVersion(null);
+              }}
+              title="Live working state. Left-click: From. Right-click: To."
+              className={`cursor-pointer rounded-lg border border-dashed p-2.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+                isCurrentFrom
+                  ? "border-accent bg-accent/10"
+                  : isCurrentTo
+                    ? "border-emerald-500/50 bg-emerald-500/10"
+                    : "border-border hover:border-accent/50"
+              }`}
+            >
+              <span className="flex min-w-0 items-center gap-2">
+                <span className="min-w-0 truncate text-sm font-semibold">
+                  {CURRENT_EDITS_LABEL}
+                </span>
+                {isCurrentFrom && (
+                  <span className="shrink-0 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-accent">
+                    From
+                  </span>
+                )}
+                {isCurrentTo && (
+                  <span className="shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-emerald-600 dark:text-emerald-400">
+                    To
+                  </span>
+                )}
+              </span>
+              <span className="mt-0.5 block text-xs text-muted">
+                {current.fields.length} fields - unsaved
+              </span>
+            </li>
+          </ul>
+        )}
+      </Panel>
+    );
+  }
+
   return (
     <Panel
-      title="Versions"
-      description="Left-click a row for From, right-click for To, double-click to rename."
+      title="Snapshots"
+      collapsible
+      defaultOpen
+      summary={
+        <span className="text-muted">
+          {versions.length} {versions.length === 1 ? "snapshot" : "snapshots"}
+        </span>
+      }
       actions={
-        <Button variant="primary" onClick={saveVersion}>
-          Save version
-        </Button>
+        <>
+          <Button variant="primary" size="sm" onClick={saveVersion}>
+            Save version
+          </Button>
+          {collapseAction}
+        </>
       }
     >
-      {versions.length === 0 ? (
-        <p className="text-sm text-muted">
-          No versions yet. Save one to start tracking changes.
-        </p>
-      ) : (
-        <ul className="space-y-1.5">
-          {versions.map((v) => {
-            const isFrom = fromVersionId === v.id;
-            const isTo = toVersionId === v.id;
+      <ul className="space-y-2">
+        <LiveCard
+          model={current}
+          active={previewVersionId === null}
+          onClick={() => setPreviewVersion(null)}
+        />
+        {versions.length === 0 ? (
+          <li className="break-words rounded-lg border border-border bg-surface p-2.5 text-sm text-muted">
+            No saved snapshots yet.
+          </li>
+        ) : (
+          versions.map((v, idx) => {
             const isEditing = editingId === v.id;
             const isConfirming = confirmingId === v.id;
-            const selectable = !isEditing && !isConfirming;
+            const isPreviewing = previewVersionId === v.id;
 
             return (
               <li
                 key={v.id}
-                onClick={selectable ? () => setBaseVersion(v.id) : undefined}
-                onDoubleClick={
-                  selectable ? () => startEdit(v.id, v.label) : undefined
-                }
-                onContextMenu={
-                  selectable
-                    ? (e) => {
-                        e.preventDefault();
-                        setTargetVersion(v.id);
-                      }
-                    : undefined
-                }
-                title={
-                  selectable
-                    ? "Left-click: From · Right-click: To · Double-click: rename"
-                    : undefined
-                }
-                className={`flex select-none items-center gap-2 rounded-lg border px-3 py-2 transition-colors ${
-                  selectable ? "cursor-pointer" : ""
-                } ${
-                  isFrom
+                className={`rounded-lg border p-2.5 transition-colors ${
+                  isPreviewing
                     ? "border-accent bg-accent/10"
-                    : isTo
-                      ? "border-emerald-500/50 bg-emerald-500/10"
-                      : "border-border"
+                    : "border-border bg-surface hover:border-accent/50"
                 }`}
               >
                 {isEditing ? (
-                  <div className="relative min-w-0 flex-1">
+                  <div className="space-y-2">
                     <input
                       autoFocus
                       value={draft}
@@ -118,21 +394,24 @@ export default function VersionPanel() {
                         if (e.key === "Enter") commitEdit();
                         if (e.key === "Escape") setEditingId(null);
                       }}
-                      className="w-full rounded border border-border bg-surface-muted py-1 pl-2 pr-24 text-sm outline-none focus:border-accent"
+                      className="w-full rounded-md border border-border bg-surface-muted px-2 py-1.5 text-sm outline-none focus:border-accent"
                     />
-                    {/* Faint inline hints: gray "enter" updates, red "esc" cancels. */}
-                    <div className="pointer-events-none absolute inset-y-0 right-2 flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide">
-                      <span className="rounded bg-foreground/5 px-1.5 py-0.5 text-muted/70">
-                        enter
-                      </span>
-                      <span className="rounded bg-danger/10 px-1.5 py-0.5 text-danger/60">
-                        esc
-                      </span>
+                    <div className="flex justify-end gap-1">
+                      <Button variant="primary" size="sm" onMouseDown={commitEdit}>
+                        Save
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onMouseDown={() => setEditingId(null)}
+                      >
+                        Cancel
+                      </Button>
                     </div>
                   </div>
                 ) : isConfirming ? (
-                  <>
-                    <span className="min-w-0 flex-1 truncate text-sm text-danger">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium text-danger">
                       Delete {v.label}?
                     </span>
                     <div className="flex shrink-0 items-center gap-1">
@@ -151,38 +430,61 @@ export default function VersionPanel() {
                         Cancel
                       </Button>
                     </div>
-                  </>
+                  </div>
                 ) : (
-                  <>
-                    <div className="flex min-w-0 flex-1 items-center gap-2 text-sm">
-                      <span className="truncate font-medium">{v.label}</span>
+                  <div className="flex items-start justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setPreviewVersion(v.id)}
+                      onDoubleClick={() => startEdit(v.id, v.label)}
+                      className="block min-w-0 flex-1 text-left"
+                      title="Preview this snapshot (read-only). Double-click to rename."
+                    >
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span className="min-w-0 truncate text-sm font-semibold">
+                          {v.label}
+                        </span>
+                        {isPreviewing && (
+                          <span className="shrink-0 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-accent">
+                            Viewing
+                          </span>
+                        )}
+                      </span>
                       <span
-                        className="shrink-0 text-xs text-muted"
+                        className="mt-0.5 block text-xs text-muted"
                         title={new Date(v.createdAt).toLocaleString()}
                       >
-                        {v.model.fields.length} fields · {timeAgo(v.createdAt)}
+                        {v.model.fields.length} fields - {timeAgo(v.createdAt)}
                       </span>
-                      {isFrom && (
-                        <span className="shrink-0 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-accent">
-                          From
-                        </span>
-                      )}
-                      {isTo && (
-                        <span className="shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
-                          To
-                        </span>
-                      )}
-                    </div>
-                    {/* Stop clicks here from also selecting the row. */}
+                      <span className="mt-1 flex flex-wrap items-center gap-1.5 text-xs font-medium">
+                        <VersionChangeSummary prev={versions[idx - 1]} curr={v} />
+                      </span>
+                    </button>
+
                     <div
-                      className="flex shrink-0 items-center gap-1"
+                      className="flex shrink-0 items-center gap-0.5"
                       onClick={(e) => e.stopPropagation()}
+                      onDoubleClick={(e) => e.stopPropagation()}
                     >
                       <Button
                         variant="ghost"
                         size="icon"
+                        className={
+                          copiedId === v.id
+                            ? "text-accent"
+                            : "text-muted hover:text-foreground"
+                        }
+                        aria-label="Copy a shareable link to this version"
+                        title={copiedId === v.id ? "Link copied!" : "Copy share link"}
+                        onClick={() => shareVersion(v.id, v.model)}
+                      >
+                        <LinkIcon />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
                         className="text-muted hover:text-foreground"
-                        aria-label="Restore this version into the editor"
+                        aria-label="Restore this snapshot into the editor"
                         title="Restore into editor"
                         onClick={() => loadVersion(v.id)}
                       >
@@ -192,8 +494,8 @@ export default function VersionPanel() {
                         variant="ghost"
                         size="icon"
                         className="text-muted hover:text-foreground"
-                        aria-label="Rename this version"
-                        title="Rename (or double-click the row)"
+                        aria-label="Rename this snapshot"
+                        title="Rename"
                         onClick={() => startEdit(v.id, v.label)}
                       >
                         <PencilIcon />
@@ -201,20 +503,20 @@ export default function VersionPanel() {
                       <Button
                         variant="danger"
                         size="icon"
-                        aria-label="Delete this version"
+                        aria-label="Delete this snapshot"
                         title="Delete"
                         onClick={() => startDelete(v.id)}
                       >
                         <TrashIcon />
                       </Button>
                     </div>
-                  </>
+                  </div>
                 )}
               </li>
             );
-          })}
-        </ul>
-      )}
+          })
+        )}
+      </ul>
     </Panel>
   );
 }

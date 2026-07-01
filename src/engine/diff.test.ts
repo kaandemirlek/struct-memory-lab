@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { diffVersions } from "@/engine/diff";
-import type { Field, StructModel } from "@/types";
+import { diffVersions, summarizeDiff, diffReport } from "@/engine/diff";
+import type { DiffEntry, Field, StructModel } from "@/types";
 
 const f = (
   id: string,
@@ -74,5 +74,62 @@ describe("diffVersions", () => {
       fieldName: "",
       detail: "Field order changed",
     });
+  });
+});
+
+describe("summarizeDiff", () => {
+  const e = (kind: DiffEntry["kind"]): DiffEntry => ({
+    kind,
+    fieldName: "x",
+    detail: "",
+  });
+
+  it("counts added / removed, and folds type-changed + renamed into 'changed'", () => {
+    const entries = [
+      e("added"),
+      e("added"),
+      e("removed"),
+      e("type-changed"),
+      e("renamed"),
+      e("reordered"),
+    ];
+    expect(summarizeDiff(entries)).toEqual({
+      added: 2,
+      removed: 1,
+      changed: 2,
+      reordered: 1,
+    });
+  });
+
+  it("is all-zero for an empty diff", () => {
+    expect(summarizeDiff([])).toEqual({
+      added: 0,
+      removed: 0,
+      changed: 0,
+      reordered: 0,
+    });
+  });
+});
+
+describe("diffReport", () => {
+  const f = (
+    id: string,
+    name: string,
+    type: Field["type"]
+  ): Field => ({ id, name, type, arrayLength: 1 });
+
+  it("produces a markdown report of the changes", () => {
+    const a: StructModel = { name: "S", fields: [f("1", "id", "uint32_t"), f("2", "alive", "bool")] };
+    const b: StructModel = { name: "S", fields: [f("1", "id", "uint32_t"), f("3", "mana", "uint32_t")] };
+    const md = diffReport(a, b, "v1", "v2");
+    expect(md).toContain("# Struct changes: v1 → v2");
+    expect(md).toContain("**2 changes**");
+    expect(md).toContain("- **Added** mana: uint32_t");
+    expect(md).toContain("- **Removed** alive: bool");
+  });
+
+  it("reports 'No changes.' when models are identical", () => {
+    const a: StructModel = { name: "S", fields: [f("1", "id", "uint32_t")] };
+    expect(diffReport(a, a, "v1", "v1")).toContain("No changes.");
   });
 });

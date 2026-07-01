@@ -1,73 +1,158 @@
-// LayoutVisualizer.tsx   (the app's signature visual)
 "use client";
 
-import { Fragment, useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import {
-  DndContext,
-  closestCenter,
-  PointerSensor,
-  KeyboardSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core";
-import {
-  SortableContext,
-  horizontalListSortingStrategy,
-  sortableKeyboardCoordinates,
-  useSortable,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
-import { useStructStore } from "@/store/useStructStore";
+  resolveComparison,
+  useStructStore,
+} from "@/store/useStructStore";
 import { computeLayout } from "@/engine/layout";
-import { toSegments } from "@/engine/segments";
-import { isUnsignedInt } from "@/engine/bitfields";
-import type { FieldLayout, LayoutResult } from "@/types";
+import { toSegments, type LayoutSegment } from "@/engine/segments";
+import {
+  analyzeFieldImpacts,
+  type FieldImpact,
+} from "@/engine/compatibility";
+import type { LayoutResult, StructModel, WarningSeverity } from "@/types";
 import Panel from "@/components/ui/Panel";
 
-// Stable color palette for fields.
+type Mode = "edit" | "compare";
+
 const COLORS = ["#60a5fa", "#34d399", "#f472b6", "#fbbf24", "#a78bfa", "#fb7185"];
 
-// Alan kimliğinden stabil bir palet indeksi (reorder'da renk mümkün olduğunca sabit).
-function colorIndexForId(id: string): number {
-  let hash = 0;
-  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) | 0;
-  return Math.abs(hash) % COLORS.length;
+const SEVERITY_RANK: Record<WarningSeverity, number> = {
+  danger: 0,
+  warning: 1,
+  info: 2,
+};
+
+const BADGE_STYLES: Record<WarningSeverity, string> = {
+  danger: "border-danger/30 bg-danger/10 text-danger",
+  warning: "border-warning/30 bg-warning/10 text-warning",
+  info: "border-info/30 bg-info/10 text-info",
+};
+
+const RING_STYLES: Record<WarningSeverity, string> = {
+  danger: "ring-2 ring-danger",
+  warning: "ring-2 ring-warning",
+  info: "ring-2 ring-info",
+};
+
+function strongestSeverity(impact: FieldImpact): WarningSeverity {
+  return impact.badges.reduce<WarningSeverity>(
+    (strongest, badge) =>
+      SEVERITY_RANK[badge.severity] < SEVERITY_RANK[strongest]
+        ? badge.severity
+        : strongest,
+    "info"
+  );
 }
 
-/**
- * Alanlara renk ata: temel renk kimlikten (stabil) gelir, ama YAN YANA iki blok
- * aynı renge düşerse ikinciyi bir sonraki renge kaydır → komşular her zaman farklı.
- * (6 renkten fazla alanda uzak bloklar tekrar edebilir; kritik olan bitişik ayrımı.)
- */
-function assignFieldColors(fields: { fieldId: string }[]): Record<string, string> {
-  const map: Record<string, string> = {};
-  let prev = -1;
-  for (const f of fields) {
-    let idx = colorIndexForId(f.fieldId);
-    if (idx === prev) idx = (idx + 1) % COLORS.length; // komşuyla çakışmayı boz
-    map[f.fieldId] = COLORS[idx];
-    prev = idx;
+function impactTitle(impact: FieldImpact): string {
+  return impact.badges.map((b) => b.detail).join("\n");
+}
+
+function ImpactBadges({ impact }: { impact: FieldImpact }) {
+  return (
+    <span className="flex flex-wrap items-center gap-1">
+      {impact.badges.map((badge) => (
+        <span
+          key={`${badge.kind}-${badge.label}`}
+          title={badge.detail}
+          className={`rounded border px-1 py-0.5 text-[10px] font-medium leading-none ${BADGE_STYLES[badge.severity]}`}
+        >
+          {badge.label}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function buildColorById(a: StructModel, b: StructModel): Map<string, number> {
+  const colorById = new Map<string, number>();
+  for (const field of [...a.fields, ...b.fields]) {
+    if (!colorById.has(field.id)) colorById.set(field.id, colorById.size);
   }
-  return map;
+  return colorById;
 }
 
-const fieldLabel = (fl: FieldLayout) =>
-  (fl.arrayLength ?? 1) > 1 ? `${fl.name}[${fl.arrayLength}]` : fl.name;
+function fieldColorIndex(segment: LayoutSegment, colorById?: Map<string, number>) {
+  if (segment.fieldId && colorById?.has(segment.fieldId)) {
+    return colorById.get(segment.fieldId)!;
+  }
+  return segment.colorIndex ?? 0;
+}
 
-// ----------------------------------------------------------------------------
-// Salt-okunur özyinelemeli band (nested struct iç yerleşimi için; reorder yok).
-// ----------------------------------------------------------------------------
-function Band({ layout, pxPerByte }: { layout: LayoutResult; pxPerByte: number }) {
-  const segments = toSegments(layout);
-  const [open, setOpen] = useState<Record<number, boolean>>({});
+function LayoutStrip({
+  label,
+  layout,
+  segments,
+  pxPerByte,
+  impactsById,
+  colorById,
+}: {
+  label?: string;
+  layout: LayoutResult;
+  segments: LayoutSegment[];
+  pxPerByte: number;
+  impactsById?: Map<string, FieldImpact>;
+  colorById?: Map<string, number>;
+}) {
+  if (segments.length === 0) {
+    return <p className="text-sm text-muted">Add fields to see the memory layout.</p>;
+  }
 
   return (
-    <div className="overflow-x-auto">
-      <div className="flex h-16 w-max overflow-hidden rounded-lg border border-border">
-        {segments.map((s, i) => {
-          if (s.kind === "padding") {
-            return (
+    <section className="min-w-0">
+      {label && (
+        <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+          <h3 className="min-w-0 truncate text-xs font-semibold text-foreground">
+            {label}
+          </h3>
+          <span className="shrink-0 text-xs tabular-nums text-muted">
+            {layout.totalSize} B / align {layout.alignment} B / pad{" "}
+            {layout.totalPadding} B
+          </span>
+        </div>
+      )}
+
+      <div className="overflow-x-auto">
+        <div className="flex h-32 w-max overflow-hidden rounded-lg border border-border">
+          {segments.map((s, i) => {
+            const impact = s.fieldId ? impactsById?.get(s.fieldId) : undefined;
+            const severity = impact ? strongestSeverity(impact) : undefined;
+            const title =
+              s.kind === "field"
+                ? [
+                    `${s.name}: offset ${s.offset}, ${s.size} bytes`,
+                    impact ? impactTitle(impact) : "",
+                  ]
+                    .filter(Boolean)
+                    .join("\n")
+                : `padding: ${s.size} wasted bytes`;
+
+            return s.kind === "field" ? (
+              <div
+                key={i}
+                style={{
+                  width: s.size * pxPerByte,
+                  background: COLORS[fieldColorIndex(s, colorById) % COLORS.length],
+                }}
+                className={`relative flex shrink-0 flex-col items-center justify-center overflow-hidden border-r border-black/10 text-xs text-black last:border-r-0 ${
+                  severity ? RING_STYLES[severity] : ""
+                }`}
+                title={title}
+              >
+                {impact && severity && (
+                  <span
+                    className={`absolute right-1 top-1 rounded border bg-white/90 px-1 text-[9px] font-bold leading-3 ${BADGE_STYLES[severity]}`}
+                    title={impactTitle(impact)}
+                  >
+                    !
+                  </span>
+                )}
+                <span className="max-w-full truncate px-1 font-medium">{s.name}</span>
+                <span className="opacity-70">{s.size}B</span>
+              </div>
+            ) : (
               <div
                 key={i}
                 style={{
@@ -76,313 +161,204 @@ function Band({ layout, pxPerByte }: { layout: LayoutResult; pxPerByte: number }
                     "repeating-linear-gradient(45deg, rgba(120,120,120,.30) 0 4px, transparent 4px 8px)",
                 }}
                 className="flex shrink-0 items-center justify-center border-r border-border text-[10px] text-muted last:border-r-0"
-                title={`padding: ${s.size} wasted bytes`}
+                title={title}
               >
                 {s.size}
               </div>
             );
-          }
-          const expandable = s.type === "struct" && !!s.nested;
-          const isOpen = expandable && open[s.offset];
-          const displayName = s.arrayIndex === undefined ? s.name : `${s.name}[${s.arrayIndex}]`;
-          return (
+          })}
+        </div>
+
+        <div className="mt-1 flex w-max">
+          {segments.map((s, i) => (
             <div
               key={i}
-              onClick={expandable ? () => setOpen((o) => ({ ...o, [s.offset]: !o[s.offset] })) : undefined}
-              style={{ width: s.size * pxPerByte, background: COLORS[s.colorIndex! % COLORS.length] }}
-              className={`flex shrink-0 flex-col items-center justify-center overflow-hidden border-r border-black/10 text-xs text-black last:border-r-0 ${expandable ? "cursor-pointer" : ""}`}
-              title={`${displayName}: ${s.typeName ?? s.type} — offset ${s.offset}, ${s.size} bytes`}
-            >
-              <span className="max-w-full truncate px-1 font-medium">
-                {displayName}
-                {expandable && <span className="ml-0.5">{isOpen ? "▾" : "▸"}</span>}
-              </span>
-              <span className="max-w-full truncate px-1 opacity-70">
-                {s.type === "struct" ? s.typeName : `${s.size}B`}
-              </span>
-            </div>
-          );
-        })}
-      </div>
-      {segments
-        .filter((s) => s.kind === "field" && s.type === "struct" && s.nested && open[s.offset])
-        .map((s, i) => (
-          <div key={i} className="mt-3 border-l-2 border-accent/40 pl-3">
-            <div className="mb-1 text-xs text-muted">
-              ▾ {s.name}: {s.typeName} — iç yerleşim ({s.nested!.totalSize} B)
-            </div>
-            <Band layout={s.nested!} pxPerByte={pxPerByte} />
-          </div>
-        ))}
-    </div>
-  );
-}
-
-// ----------------------------------------------------------------------------
-// Sürüklenebilir tek bir alan bloğu (dizi ise birden çok hücre içerir).
-// ----------------------------------------------------------------------------
-function FieldBlock({
-  fl,
-  pxPerByte,
-  open,
-  onToggle,
-  bg,
-}: {
-  fl: FieldLayout;
-  pxPerByte: number;
-  open: boolean;
-  onToggle: () => void;
-  bg: string;
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: fl.fieldId,
-  });
-  const arrayLength = Math.max(1, fl.arrayLength ?? 1);
-  const elementSize = fl.elementSize ?? fl.size / arrayLength;
-  const expandable = fl.type === "struct" && !!fl.nested;
-  const isBitField = isUnsignedInt(fl.type);
-
-  // struct → aç/kapat · unsigned → Status Bits editörüne kaydır.
-  const handleClick = expandable
-    ? onToggle
-    : isBitField
-      ? () =>
-          document
-            .getElementById(`bits-${fl.fieldId}`)
-            ?.scrollIntoView({ behavior: "smooth", block: "center" })
-      : undefined;
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-  };
-
-  return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      {...attributes}
-      {...listeners}
-      onClick={handleClick}
-      className="flex shrink-0 cursor-grab active:cursor-grabbing"
-      title={`${fieldLabel(fl)}: ${fl.typeName ?? fl.type} — offset ${fl.offset}, ${fl.size} bytes (sürükle: sırala${expandable ? " · tıkla: aç/kapat" : isBitField ? " · tıkla: Status Bits" : ""})`}
-    >
-      {Array.from({ length: arrayLength }).map((_, ai) => (
-        <div
-          key={ai}
-          style={{ width: elementSize * pxPerByte, background: bg }}
-          className="flex h-16 shrink-0 flex-col items-center justify-center overflow-hidden border-r border-black/10 text-xs text-black"
-        >
-          <span className="max-w-full truncate px-1 font-medium">
-            {fl.name}
-            {arrayLength > 1 ? `[${ai}]` : ""}
-            {expandable && ai === 0 && <span className="ml-0.5">{open ? "▾" : "▸"}</span>}
-          </span>
-          <span className="max-w-full truncate px-1 opacity-70">
-            {fl.type === "struct" ? fl.typeName : `${elementSize}B`}
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function PaddingCell({ size, pxPerByte }: { size: number; pxPerByte: number }) {
-  return (
-    <div
-      style={{
-        width: size * pxPerByte,
-        backgroundImage:
-          "repeating-linear-gradient(45deg, rgba(120,120,120,.30) 0 4px, transparent 4px 8px)",
-      }}
-      className="flex h-16 shrink-0 items-center justify-center border-r border-border text-[10px] text-muted"
-      title={`padding: ${size} wasted bytes`}
-    >
-      {size}
-    </div>
-  );
-}
-
-// ----------------------------------------------------------------------------
-// Üst seviye band: alanlar dnd-kit ile sürüklenip yeniden sıralanabilir.
-// ----------------------------------------------------------------------------
-function SortableBand({
-  layout,
-  pxPerByte,
-  colorMap,
-}: {
-  layout: LayoutResult;
-  pxPerByte: number;
-  colorMap: Record<string, string>;
-}) {
-  const model = useStructStore((s) => s.currentModel);
-  const reorderFields = useStructStore((s) => s.reorderFields);
-  const [open, setOpen] = useState<Record<string, boolean>>({});
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
-  );
-
-  const handleDragEnd = (e: DragEndEvent) => {
-    const { active, over } = e;
-    if (!over || active.id === over.id) return;
-    const from = model.fields.findIndex((f) => f.id === active.id);
-    const to = model.fields.findIndex((f) => f.id === over.id);
-    if (from >= 0 && to >= 0) reorderFields(from, to);
-  };
-
-  const last = layout.fields[layout.fields.length - 1];
-  const tail = last ? layout.totalSize - (last.offset + last.size) : 0;
-
-  return (
-    <div className="overflow-x-auto">
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-        <SortableContext items={layout.fields.map((f) => f.fieldId)} strategy={horizontalListSortingStrategy}>
-          <div className="flex h-16 w-max overflow-hidden rounded-lg border border-border">
-            {layout.fields.map((fl) => (
-              <Fragment key={fl.fieldId}>
-                {fl.paddingBefore > 0 && <PaddingCell size={fl.paddingBefore} pxPerByte={pxPerByte} />}
-                <FieldBlock
-                  fl={fl}
-                  pxPerByte={pxPerByte}
-                  open={!!open[fl.fieldId]}
-                  onToggle={() => setOpen((o) => ({ ...o, [fl.fieldId]: !o[fl.fieldId] }))}
-                  bg={colorMap[fl.fieldId]}
-                />
-              </Fragment>
-            ))}
-            {tail > 0 && <PaddingCell size={tail} pxPerByte={pxPerByte} />}
-          </div>
-        </SortableContext>
-      </DndContext>
-
-      {/* Offset cetveli (band ile aynı genişlikler). */}
-      <div className="mt-1 flex w-max">
-        {layout.fields.map((fl) => (
-          <Fragment key={fl.fieldId}>
-            {fl.paddingBefore > 0 && (
-              <div style={{ width: fl.paddingBefore * pxPerByte }} className="shrink-0" />
-            )}
-            <div
-              style={{ width: fl.size * pxPerByte }}
+              style={{ width: s.size * pxPerByte }}
               className="shrink-0 text-[10px] text-muted"
             >
-              {fl.offset}
+              {s.offset}
             </div>
-          </Fragment>
-        ))}
-        <span className="pl-0.5 text-[10px] text-muted">{layout.totalSize}</span>
+          ))}
+          <span className="pl-0.5 text-[10px] text-muted">{layout.totalSize}</span>
+        </div>
       </div>
 
-      {/* Açılan nested struct'ların iç yerleşimi. */}
-      {layout.fields
-        .filter((fl) => fl.type === "struct" && fl.nested && open[fl.fieldId])
-        .map((fl) => (
-          <div key={fl.fieldId} className="mt-3 border-l-2 border-accent/40 pl-3">
-            <div className="mb-1 text-xs text-muted">
-              ▾ {fieldLabel(fl)}: {fl.typeName} — iç yerleşim ({fl.nested!.totalSize} B, align{" "}
-              {fl.nested!.alignment} B)
-            </div>
-            <Band layout={fl.nested!} pxPerByte={pxPerByte} />
-          </div>
-        ))}
-    </div>
+      <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1">
+        {segments
+          .filter((s) => s.kind === "field")
+          .map((s, i) => {
+            const impact = s.fieldId ? impactsById?.get(s.fieldId) : undefined;
+            return (
+              <span
+                key={i}
+                className="flex min-w-0 flex-wrap items-center gap-1 text-[11px]"
+                title={impact ? impactTitle(impact) : undefined}
+              >
+                <span
+                  className="inline-block h-3 w-3 shrink-0 rounded-sm"
+                  style={{
+                    background:
+                      COLORS[fieldColorIndex(s, colorById) % COLORS.length],
+                  }}
+                />
+                <span className="min-w-0 truncate">{s.name}</span>
+                <span className="text-muted">
+                  @{s.offset}/{s.size}B
+                </span>
+                {impact && <ImpactBadges impact={impact} />}
+              </span>
+            );
+          })}
+      </div>
+    </section>
   );
 }
 
-export default function LayoutVisualizer() {
+export default function LayoutVisualizer({ mode = "edit" }: { mode?: Mode }) {
   const model = useStructStore((s) => s.currentModel);
-  const layout = computeLayout(model);
-  const hasNested = layout.fields.some((f) => f.type === "struct" && f.nested);
+  const versions = useStructStore((s) => s.versions);
+  const baseVersionId = useStructStore((s) => s.baseVersionId);
+  const targetVersionId = useStructStore((s) => s.targetVersionId);
+  const previewVersionId = useStructStore((s) => s.previewVersionId);
+  const setPreviewVersion = useStructStore((s) => s.setPreviewVersion);
+  const [pxPerByte, setPxPerByte] = useState(28);
 
-  // Bandı kapsayıcı genişliğine göre otomatik ölçekle (zoom çubuğu yok).
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [containerW, setContainerW] = useState(0);
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver((entries) => setContainerW(entries[0].contentRect.width));
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-  const pxPerByte =
-    layout.totalSize > 0 && containerW > 0
-      ? Math.max(4, Math.min(48, Math.floor(containerW / layout.totalSize)))
-      : 28;
+  // Edit sekmesinde bir snapshot önizleniyorsa onu SALT-OKUNUR göster;
+  // currentModel'e (Live) dokunma. Bulunamazsa Live'a düş.
+  const previewVersion = previewVersionId
+    ? versions.find((v) => v.id === previewVersionId)
+    : undefined;
+  const editModelToShow = previewVersion?.model ?? model;
 
-  // Alan renkleri: kimlikten stabil, komşular garanti farklı (tek kaynak: band + legend).
-  const colorMap = assignFieldColors(layout.fields);
+  const cmp = resolveComparison(versions, model, baseVersionId, targetVersionId);
+  const isComparison = Boolean(
+    mode === "compare" && cmp.fromModel && cmp.toModel && cmp.fromValue !== cmp.toValue
+  );
 
-  // Opsiyonel byte bütçesi: aşılırsa uyarı.
-  const [byteLimit, setByteLimit] = useState<number | "">("");
-  const overLimit =
-    typeof byteLimit === "number" && byteLimit > 0 && layout.totalSize > byteLimit;
+  const currentLayout = computeLayout(editModelToShow);
+  const currentSegments = toSegments(currentLayout);
+
+  const fromLayout =
+    isComparison && cmp.fromModel ? computeLayout(cmp.fromModel) : null;
+  const toLayout =
+    isComparison && cmp.toModel ? computeLayout(cmp.toModel) : null;
+  const targetImpacts =
+    isComparison && cmp.fromModel && cmp.toModel
+      ? analyzeFieldImpacts(cmp.fromModel, cmp.toModel)
+      : [];
+  const targetImpactsById = new Map(
+    targetImpacts.map((impact) => [impact.fieldId, impact])
+  );
+  const colorById =
+    isComparison && cmp.fromModel && cmp.toModel
+      ? buildColorById(cmp.fromModel, cmp.toModel)
+      : undefined;
+
+  const zoomControl = (
+    <div className="flex items-center gap-2">
+      <label className="text-xs text-muted" htmlFor={`zoom-${mode}`}>
+        Zoom
+      </label>
+      <input
+        id={`zoom-${mode}`}
+        type="range"
+        min={6}
+        max={64}
+        step={1}
+        value={pxPerByte}
+        onChange={(e) => setPxPerByte(Number(e.target.value))}
+        className="flex-1 accent-accent"
+      />
+      <span className="text-xs tabular-nums text-muted">{pxPerByte} px/byte</span>
+    </div>
+  );
+
+  if (mode === "compare") {
+    if (!cmp.fromModel || !cmp.toModel) {
+      return (
+        <Panel title="Compared Layouts">
+          <p className="text-sm text-muted">Save a version first to compare layouts.</p>
+        </Panel>
+      );
+    }
+
+    if (!isComparison || !fromLayout || !toLayout) {
+      return (
+        <Panel title="Compared Layouts" description={`${cmp.fromLabel} -> ${cmp.toLabel}`}>
+          <p className="text-sm text-muted">Choose two different comparison targets.</p>
+        </Panel>
+      );
+    }
+
+    return (
+      <div className="space-y-3">
+        <div className="rounded-lg border border-border bg-surface p-3 shadow-sm">
+          {zoomControl}
+        </div>
+
+        <div className="grid min-w-0 items-start gap-4 xl:grid-cols-2">
+          <Panel
+            title={cmp.fromLabel}
+            description={`size ${fromLayout.totalSize} B / align ${fromLayout.alignment} B / padding ${fromLayout.totalPadding} B`}
+          >
+            <LayoutStrip
+              layout={fromLayout}
+              segments={toSegments(fromLayout)}
+              pxPerByte={pxPerByte}
+              colorById={colorById}
+            />
+          </Panel>
+
+          <Panel
+            title={cmp.toLabel}
+            description={`size ${toLayout.totalSize} B / align ${toLayout.alignment} B / padding ${toLayout.totalPadding} B`}
+          >
+            <LayoutStrip
+              layout={toLayout}
+              segments={toSegments(toLayout)}
+              pxPerByte={pxPerByte}
+              impactsById={targetImpactsById}
+              colorById={colorById}
+            />
+          </Panel>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <Panel
-      title="Memory Layout"
-      description={`size ${layout.totalSize} B · align ${layout.alignment} B · padding ${layout.totalPadding} B`}
+      title={previewVersion ? `Memory Layout — ${previewVersion.label}` : "Memory Layout"}
+      description={`size ${currentLayout.totalSize} B / align ${currentLayout.alignment} B / padding ${currentLayout.totalPadding} B`}
     >
-      {layout.fields.length === 0 ? (
-        <p className="text-sm text-muted">Add fields to see the memory layout.</p>
-      ) : (
-        <>
-          <div className="mb-3 flex items-center gap-2">
-            <label className="text-xs text-muted" htmlFor="byte-limit">
-              Byte limit
-            </label>
-            <input
-              id="byte-limit"
-              type="number"
-              min={0}
-              value={byteLimit}
-              onChange={(e) =>
-                setByteLimit(e.target.value === "" ? "" : Math.max(0, Number(e.target.value) || 0))
-              }
-              placeholder="opsiyonel"
-              className="w-24 rounded-lg border border-border bg-surface-muted px-2 py-1 text-xs outline-none focus:border-accent"
-            />
-            <span className="text-xs text-muted">aşılırsa uyarı verir</span>
-          </div>
-
-          {overLimit && (
-            <div
-              className="mb-3 rounded-lg border border-danger/30 bg-danger/10 p-2 text-xs text-danger"
-              role="alert"
-            >
-              ⚠ Struct {layout.totalSize} B — {byteLimit} B sınırını{" "}
-              {layout.totalSize - (byteLimit as number)} B aşıyor.
-            </div>
-          )}
-
-          <div ref={containerRef}>
-            <SortableBand layout={layout} pxPerByte={pxPerByte} colorMap={colorMap} />
-          </div>
-
-          <p className="mt-2 text-[11px] text-muted">
-            İpucu: alanları sürükleyip sırala{hasNested ? " · struct'lara tıklayıp iç yerleşimi aç" : ""}.
-          </p>
-
-          {/* Legend (alan başına bir giriş). */}
-          <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
-            {layout.fields.map((fl) => (
-              <span key={fl.fieldId} className="flex items-center gap-1 text-[11px]">
-                <span
-                  className="inline-block h-3 w-3 rounded-sm"
-                  style={{ background: colorMap[fl.fieldId] }}
-                />
-                {fieldLabel(fl)}
-                {fl.type === "struct" && <span className="text-muted">:{fl.typeName}</span>}
-                <span className="text-muted">
-                  @{fl.offset}·{fl.size}B
-                </span>
-              </span>
-            ))}
-          </div>
-        </>
+      {previewVersion && (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-accent/40 bg-accent/10 px-3 py-2 text-xs">
+          <span className="min-w-0 text-muted">
+            Previewing{" "}
+            <span className="font-semibold text-foreground">
+              {previewVersion.label}
+            </span>{" "}
+            (read-only) — your live edits are untouched.
+          </span>
+          <button
+            type="button"
+            onClick={() => setPreviewVersion(null)}
+            className="shrink-0 rounded-md border border-accent/50 px-2 py-1 font-medium text-accent transition-colors hover:bg-accent/15"
+          >
+            Back to Live
+          </button>
+        </div>
       )}
+
+      <div className="mb-3">
+        {zoomControl}
+      </div>
+
+      <LayoutStrip
+        layout={currentLayout}
+        segments={currentSegments}
+        pxPerByte={pxPerByte}
+      />
     </Panel>
   );
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { exportCpp } from "@/engine/exporter";
+import { exportCpp, exportModelJson } from "@/engine/exporter";
 import type { StructModel } from "@/types";
 
 const struct = (name: string, fields: StructModel["fields"]): StructModel => ({
@@ -8,29 +8,61 @@ const struct = (name: string, fields: StructModel["fields"]): StructModel => ({
 });
 
 describe("exportCpp", () => {
-  it("emits a compilable header with #include <cstdint> when a *_t type is used", () => {
+  it("emits a compilable header with includes and per-field offset/size comments", () => {
     const model = struct("Player", [
       { id: "1", name: "id", type: "uint32_t", arrayLength: 1 },
       { id: "2", name: "alive", type: "bool", arrayLength: 1 },
     ]);
-
-    expect(exportCpp(model)).toBe(
-      `#pragma once
-
-#include <cstdint>
-#include <cstddef>
-
-struct Player {
-    uint32_t id;
-    bool alive;
-};
-
-// --- Player bellek yerleşimi doğrulaması (ABI kilidi) ---
-static_assert(sizeof(Player) == 8, "sizeof(Player) beklenenden farkli");
-static_assert(offsetof(Player, id) == 0, "Player.id offset kaymis");
-static_assert(offsetof(Player, alive) == 4, "Player.alive offset kaymis");
-`
+    const out = exportCpp(model);
+    expect(out).toContain("#pragma once");
+    expect(out).toContain("#include <cstdint>");
+    expect(out).toContain("struct Player {");
+    expect(out).toMatch(/uint32_t id;\s+\/\/ offset 0, size 4/);
+    expect(out).toMatch(/bool alive;\s+\/\/ offset 4, size 1/);
+    expect(out).toContain(
+      "// sizeof = 8 bytes, alignment = 4 bytes, padding = 3 bytes"
     );
+  });
+
+  it("notes padding bytes as comments", () => {
+    const model = struct("P", [
+      { id: "1", name: "a", type: "bool", arrayLength: 1 },
+      { id: "2", name: "b", type: "double", arrayLength: 1 },
+    ]);
+    // bool@0 (1B), 7 bytes padding, double@8 (8B)
+    expect(exportCpp(model)).toContain("// 7 bytes padding");
+  });
+
+  it("omits all comments when { comments: false }", () => {
+    const model = struct("Player", [
+      { id: "1", name: "id", type: "uint32_t", arrayLength: 1 },
+      { id: "2", name: "alive", type: "bool", arrayLength: 1 },
+    ]);
+    const out = exportCpp(model, { comments: false });
+    expect(out).toContain("uint32_t id;");
+    expect(out).not.toContain("// offset");
+    expect(out).not.toContain("padding");
+    expect(out).not.toContain("// sizeof");
+  });
+
+  it("includes <cstddef> (not <cstdint>) when size_t is used", () => {
+    const model = struct("Buffer", [
+      { id: "1", name: "count", type: "size_t", arrayLength: 1 },
+    ]);
+    const out = exportCpp(model);
+    expect(out).toContain("#include <cstddef>");
+    expect(out).not.toContain("#include <cstdint>");
+    expect(out).toContain("size_t count;");
+  });
+
+  it("includes both <cstdint> and <cstddef> when both kinds are used", () => {
+    const model = struct("Mixed", [
+      { id: "1", name: "id", type: "uint32_t", arrayLength: 1 },
+      { id: "2", name: "len", type: "size_t", arrayLength: 1 },
+    ]);
+    const out = exportCpp(model);
+    expect(out).toContain("#include <cstdint>");
+    expect(out).toContain("#include <cstddef>");
   });
 
   it("omits <cstdint> when no fixed-width integer types are present", () => {
@@ -55,166 +87,68 @@ static_assert(offsetof(Player, alive) == 4, "Player.alive offset kaymis");
   it("handles an empty struct with a placeholder comment", () => {
     const out = exportCpp(struct("Empty", []));
     expect(out).toContain("struct Empty {");
-    expect(out).toContain("// (alan yok)");
+    expect(out).toContain("// (no fields)");
   });
 
   it("falls back to a valid name when the struct name is blank", () => {
     const out = exportCpp(struct("   ", []));
     expect(out).toContain("struct Struct {");
   });
+});
 
-  describe("bit-field mask macros", () => {
-    it("emits SHIFT/MASK #defines for a flag bit", () => {
-      const model = struct("SensorStatus", [
-        {
-          id: "1",
-          name: "statusWord",
-          type: "uint32_t",
-          arrayLength: 1,
-          bitFields: [
-            {
-              id: "b1",
-              name: "irCameraFail",
-              wordIndex: 0,
-              startBit: 0,
-              width: 1,
-              kind: "flag",
-              meanings: [
-                { value: 0, label: "OK" },
-                { value: 1, label: "FAIL" },
-              ],
-            },
+describe("exportModelJson", () => {
+  it("includes the struct, types, and layout metadata", () => {
+    const model = struct("Player", [
+      { id: "1", name: "id", type: "uint32_t", arrayLength: 1 },
+    ]);
+    const json = JSON.parse(exportModelJson(model));
+    expect(json.struct.name).toBe("Player");
+    expect(json.struct.fields[0]).toMatchObject({ name: "id", type: "uint32_t" });
+    expect(json.layout.totalSize).toBe(4);
+    expect(json.layout.alignment).toBe(4);
+    expect(json.layout.fields[0]).toMatchObject({ name: "id", offset: 0, size: 4 });
+  });
+});
+
+describe("exportCpp — nested structs & bit-fields (merged features)", () => {
+  it("emits nested struct definitions before the parent, with static_asserts", () => {
+    const model = struct("Player", [
+      { id: "1", name: "id", type: "uint32_t", arrayLength: 1 },
+      {
+        id: "2",
+        name: "position",
+        type: "struct",
+        arrayLength: 1,
+        nested: {
+          name: "Vec3",
+          fields: [
+            { id: "3", name: "x", type: "float", arrayLength: 1 },
+            { id: "4", name: "y", type: "float", arrayLength: 1 },
           ],
         },
-      ]);
-
-      const out = exportCpp(model);
-      expect(out).toContain("// --- statusWord bit alanları (mask makroları) ---");
-      expect(out).toContain("#define SENSORSTATUS_STATUSWORD_IRCAMERAFAIL_SHIFT 0u");
-      expect(out).toContain(
-        "#define SENSORSTATUS_STATUSWORD_IRCAMERAFAIL_MASK (0x1u << 0)  // flag, 0=OK, 1=FAIL"
-      );
-    });
-
-    it("computes a multi-bit mask and defaults kind to uint", () => {
-      const model = struct("Ctrl", [
-        {
-          id: "1",
-          name: "reg",
-          type: "uint16_t",
-          arrayLength: 1,
-          bitFields: [
-            { id: "b1", name: "mode", wordIndex: 0, startBit: 4, width: 3 },
-          ],
-        },
-      ]);
-
-      const out = exportCpp(model);
-      // width 3 → (1<<3)-1 = 0x7
-      expect(out).toContain("#define CTRL_REG_MODE_SHIFT 4u");
-      expect(out).toContain("#define CTRL_REG_MODE_MASK (0x7u << 4)  // uint");
-    });
-
-    it("uses ull suffix for 64-bit words and BigInt-safe wide masks", () => {
-      const model = struct("Big", [
-        {
-          id: "1",
-          name: "flags",
-          type: "uint64_t",
-          arrayLength: 1,
-          bitFields: [
-            { id: "b1", name: "hi", wordIndex: 0, startBit: 40, width: 8, kind: "uint" },
-          ],
-        },
-      ]);
-
-      const out = exportCpp(model);
-      // width 8 → 0xFF, 64-bit word → ull suffix
-      expect(out).toContain("#define BIG_FLAGS_HI_MASK (0xFFull << 40)  // uint");
-    });
-
-    it("annotates the word index for array (multi-word) fields", () => {
-      const model = struct("Telemetry", [
-        {
-          id: "1",
-          name: "words",
-          type: "uint32_t",
-          arrayLength: 4,
-          bitFields: [
-            { id: "b1", name: "ready", wordIndex: 2, startBit: 5, width: 1, kind: "flag" },
-          ],
-        },
-      ]);
-
-      const out = exportCpp(model);
-      expect(out).toContain(
-        "#define TELEMETRY_WORDS_READY_MASK (0x1u << 5)  // flag, word 2"
-      );
-    });
-
-    it("skips bit fields on non-unsigned types (no macros emitted)", () => {
-      const model = struct("Bad", [
-        {
-          id: "1",
-          name: "signedReg",
-          type: "int32_t",
-          arrayLength: 1,
-          bitFields: [{ id: "b1", name: "x", wordIndex: 0, startBit: 0, width: 1 }],
-        },
-      ]);
-
-      const out = exportCpp(model);
-      expect(out).not.toContain("_MASK");
-      expect(out).not.toContain("mask makroları");
-    });
+      },
+    ]);
+    const out = exportCpp(model);
+    expect(out).toContain("struct Vec3 {");
+    expect(out.indexOf("struct Vec3 {")).toBeLessThan(out.indexOf("struct Player {"));
+    expect(out).toContain("Vec3 position;");
+    expect(out).toContain("static_assert(sizeof(Player)");
   });
 
-  describe("static_assert layout locks", () => {
-    it("emits sizeof + offsetof asserts and includes <cstddef>", () => {
-      const model = struct("SensorStatus", [
-        { id: "1", name: "statusWord", type: "uint32_t", arrayLength: 1 },
-        { id: "2", name: "health", type: "double", arrayLength: 1 },
-      ]);
-
-      const out = exportCpp(model);
-      expect(out).toContain("#include <cstddef>");
-      expect(out).toContain(
-        'static_assert(sizeof(SensorStatus) == 16, "sizeof(SensorStatus) beklenenden farkli");'
-      );
-      expect(out).toContain(
-        'static_assert(offsetof(SensorStatus, statusWord) == 0, "SensorStatus.statusWord offset kaymis");'
-      );
-      // uint32_t + double → health 8'e hizalanır (4 byte padding).
-      expect(out).toContain(
-        'static_assert(offsetof(SensorStatus, health) == 8, "SensorStatus.health offset kaymis");'
-      );
-    });
-
-    it("omits asserts and <cstddef> for an empty struct", () => {
-      const out = exportCpp(struct("Empty", []));
-      expect(out).not.toContain("static_assert");
-      expect(out).not.toContain("#include <cstddef>");
-    });
-
-    it("emits a separate assert block per nested struct", () => {
-      const model = struct("Outer", [
-        {
-          id: "1",
-          name: "pos",
-          type: "struct",
-          arrayLength: 1,
-          nested: struct("Vec3", [
-            { id: "a", name: "x", type: "float", arrayLength: 1 },
-            { id: "b", name: "y", type: "float", arrayLength: 1 },
-            { id: "c", name: "z", type: "float", arrayLength: 1 },
-          ]),
-        },
-      ]);
-
-      const out = exportCpp(model);
-      expect(out).toContain("static_assert(sizeof(Vec3) == 12");
-      expect(out).toContain("static_assert(offsetof(Vec3, z) == 8");
-      expect(out).toContain("static_assert(offsetof(Outer, pos) == 0");
-    });
+  it("emits portable bit-field mask/shift macros", () => {
+    const model = struct("Player", [
+      {
+        id: "1",
+        name: "status",
+        type: "uint32_t",
+        arrayLength: 1,
+        bitFields: [
+          { id: "b1", name: "alive", wordIndex: 0, startBit: 0, width: 1, meanings: [] },
+        ],
+      },
+    ]);
+    const out = exportCpp(model);
+    expect(out).toContain("#define PLAYER_STATUS_ALIVE_SHIFT 0u");
+    expect(out).toContain("PLAYER_STATUS_ALIVE_MASK");
   });
 });

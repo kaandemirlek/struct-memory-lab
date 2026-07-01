@@ -1,12 +1,8 @@
 import StoreHydration from "@/components/StoreHydration";
+import HistoryControls from "@/components/HistoryControls";
+import ThemeToggle from "@/components/ThemeToggle";
 import ImportBox from "@/components/ImportBox";
-import FieldEditor from "@/components/FieldEditor";
-import LayoutVisualizer from "@/components/LayoutVisualizer";
-import BitFieldPanel from "@/components/BitFieldPanel";
-import VersionPanel from "@/components/VersionPanel";
-import DiffView from "@/components/DiffView";
-import WarningsPanel from "@/components/WarningsPanel";
-import OptimizerPanel from "@/components/OptimizerPanel";
+import WorkspaceShell from "@/components/WorkspaceShell";
 import ExportBox from "@/components/ExportBox";
 
 export default function Home() {
@@ -14,7 +10,7 @@ export default function Home() {
     <div className="min-h-screen">
       <StoreHydration />
       <header className="sticky top-0 z-10 border-b border-border bg-background/80 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl items-center gap-3 px-6 py-3">
+        <div className="flex w-full items-center gap-3 px-4 py-3 sm:px-6 lg:px-8">
           <div className="grid h-7 w-7 place-items-center rounded-md bg-accent text-xs font-bold text-accent-foreground">
             S
           </div>
@@ -26,25 +22,18 @@ export default function Home() {
               Visualize, version and export C++ struct memory layouts
             </p>
           </div>
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-7xl px-6 py-6">
-        <div className="grid gap-6 lg:grid-cols-2">
-          <div className="space-y-6">
+          <div className="ml-auto flex items-center gap-2">
+            <ThemeToggle />
+            <HistoryControls />
+            <div className="mx-1 h-5 w-px bg-border" aria-hidden />
             <ImportBox />
-            <FieldEditor />
-            <LayoutVisualizer />
-            <BitFieldPanel />
-          </div>
-          <div className="space-y-6">
-            <VersionPanel />
-            <DiffView />
-            <WarningsPanel />
-            <OptimizerPanel />
             <ExportBox />
           </div>
         </div>
+      </header>
+
+      <main className="w-full px-4 py-5 sm:px-6 lg:px-8">
+        <WorkspaceShell />
       </main>
     </div>
   );

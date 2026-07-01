@@ -14,6 +14,7 @@ export interface LayoutSegment {
   kind: "field" | "padding";
   offset: number; // banttaki başlangıç byte'ı
   size: number; // kaç byte
+  fieldId?: string; // sadece field için (stabil renk/etkileşim eşlemesi)
   name?: string; // sadece field için
   type?: FieldType; // sadece field için ("struct" olabilir)
   typeName?: string; // gösterim etiketi ("uint32_t" / "Vec3") — sadece field için
@@ -44,6 +45,7 @@ export function toSegments(layout: LayoutResult): LayoutSegment[] {
         kind: "field",
         offset: f.offset + arrayIndex * elementSize,
         size: elementSize,
+        fieldId: f.fieldId,
         name: f.name,
         type: f.type,
         typeName: f.typeName,

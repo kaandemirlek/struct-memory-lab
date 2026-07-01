@@ -89,6 +89,64 @@ describe("bitWarningsForField", () => {
   it("bit alanı olmayan alanda uyarı yok", () => {
     expect(bitWarningsForField(word("uint32_t", 1, []))).toEqual([]);
   });
+
+  it("meanings değeri width'e sığmıyorsa uyarır (uint/enum)", () => {
+    const f = word("uint32_t", 1, [
+      {
+        id: "m1",
+        name: "mode",
+        wordIndex: 0,
+        startBit: 0,
+        width: 2, // 0..3
+        kind: "enum",
+        meanings: [
+          { value: 3, label: "TRACK" }, // ok
+          { value: 5, label: "OVER" }, // taşar
+        ],
+      },
+    ]);
+    expect(bitWarningsForField(f)).toContainEqual(
+      expect.objectContaining({
+        severity: "warning",
+        message: expect.stringMatching(/sığmıyor.*0\.\.3/),
+      })
+    );
+  });
+
+  it("signed (int) alanda negatif değer izinli aralıkta kabul edilir", () => {
+    const f = word("uint32_t", 1, [
+      {
+        id: "m2",
+        name: "delta",
+        wordIndex: 0,
+        startBit: 0,
+        width: 4, // int: -8..7
+        kind: "int",
+        meanings: [
+          { value: -8, label: "MIN" },
+          { value: 7, label: "MAX" },
+        ],
+      },
+    ]);
+    expect(bitWarningsForField(f)).toEqual([]);
+  });
+
+  it("signed alanda aralık dışı değer uyarır", () => {
+    const f = word("uint32_t", 1, [
+      {
+        id: "m3",
+        name: "delta",
+        wordIndex: 0,
+        startBit: 0,
+        width: 4, // int: -8..7
+        kind: "int",
+        meanings: [{ value: 8, label: "TOO_BIG" }],
+      },
+    ]);
+    expect(bitWarningsForField(f)).toContainEqual(
+      expect.objectContaining({ severity: "warning", message: expect.stringMatching(/-8\.\.7/) })
+    );
+  });
 });
 
 describe("analyzeBitWarnings (model)", () => {

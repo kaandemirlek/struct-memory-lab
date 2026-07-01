@@ -94,6 +94,28 @@ export function bitWarningsForField(field: Field): Warning[] {
     }
   }
 
+  // Değer anlamları (meanings) bit alanının genişlik + tipine sığıyor mu?
+  //   uint/enum/flag → 0..2^w-1 ;  int (signed, ikinin tümleyeni) → -2^(w-1)..2^(w-1)-1
+  for (const b of bits) {
+    if (!b.meanings || b.meanings.length === 0) continue;
+    if (b.width < 1 || b.width > 30) continue; // Math.pow taşmasına karşı makul sınır
+    const kind = b.kind ?? (b.width === 1 ? "flag" : "uint");
+    let min = 0;
+    let max = Math.pow(2, b.width) - 1;
+    if (kind === "int") {
+      min = -Math.pow(2, b.width - 1);
+      max = Math.pow(2, b.width - 1) - 1;
+    }
+    for (const m of b.meanings) {
+      if (m.value < min || m.value > max) {
+        out.push({
+          severity: "warning",
+          message: `"${b.name}": değer ${m.value} (${m.label}) ${b.width}-bit ${kind} alanına sığmıyor (izinli ${min}..${max}).`,
+        });
+      }
+    }
+  }
+
   // Çakışma (overlap) — aynı word içindeki bit aralıkları kesişiyor mu.
   for (let i = 0; i < bits.length; i++) {
     for (let j = i + 1; j < bits.length; j++) {

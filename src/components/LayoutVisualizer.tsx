@@ -28,11 +28,28 @@ import Panel from "@/components/ui/Panel";
 // Stable color palette for fields.
 const COLORS = ["#60a5fa", "#34d399", "#f472b6", "#fbbf24", "#a78bfa", "#fb7185"];
 
-// Rengi alanın KİMLİĞİNE göre seç (sıraya göre değil) → reorder'da renk sabit kalır.
-function colorForField(id: string): string {
+// Alan kimliğinden stabil bir palet indeksi (reorder'da renk mümkün olduğunca sabit).
+function colorIndexForId(id: string): number {
   let hash = 0;
   for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) | 0;
-  return COLORS[Math.abs(hash) % COLORS.length];
+  return Math.abs(hash) % COLORS.length;
+}
+
+/**
+ * Alanlara renk ata: temel renk kimlikten (stabil) gelir, ama YAN YANA iki blok
+ * aynı renge düşerse ikinciyi bir sonraki renge kaydır → komşular her zaman farklı.
+ * (6 renkten fazla alanda uzak bloklar tekrar edebilir; kritik olan bitişik ayrımı.)
+ */
+function assignFieldColors(fields: { fieldId: string }[]): Record<string, string> {
+  const map: Record<string, string> = {};
+  let prev = -1;
+  for (const f of fields) {
+    let idx = colorIndexForId(f.fieldId);
+    if (idx === prev) idx = (idx + 1) % COLORS.length; // komşuyla çakışmayı boz
+    map[f.fieldId] = COLORS[idx];
+    prev = idx;
+  }
+  return map;
 }
 
 const fieldLabel = (fl: FieldLayout) =>
@@ -109,11 +126,13 @@ function FieldBlock({
   pxPerByte,
   open,
   onToggle,
+  bg,
 }: {
   fl: FieldLayout;
   pxPerByte: number;
   open: boolean;
   onToggle: () => void;
+  bg: string;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: fl.fieldId,
@@ -122,7 +141,6 @@ function FieldBlock({
   const elementSize = fl.elementSize ?? fl.size / arrayLength;
   const expandable = fl.type === "struct" && !!fl.nested;
   const isBitField = isUnsignedInt(fl.type);
-  const bg = colorForField(fl.fieldId);
 
   // struct → aç/kapat · unsigned → Status Bits editörüne kaydır.
   const handleClick = expandable
@@ -189,7 +207,15 @@ function PaddingCell({ size, pxPerByte }: { size: number; pxPerByte: number }) {
 // ----------------------------------------------------------------------------
 // Üst seviye band: alanlar dnd-kit ile sürüklenip yeniden sıralanabilir.
 // ----------------------------------------------------------------------------
-function SortableBand({ layout, pxPerByte }: { layout: LayoutResult; pxPerByte: number }) {
+function SortableBand({
+  layout,
+  pxPerByte,
+  colorMap,
+}: {
+  layout: LayoutResult;
+  pxPerByte: number;
+  colorMap: Record<string, string>;
+}) {
   const model = useStructStore((s) => s.currentModel);
   const reorderFields = useStructStore((s) => s.reorderFields);
   const [open, setOpen] = useState<Record<string, boolean>>({});
@@ -223,6 +249,7 @@ function SortableBand({ layout, pxPerByte }: { layout: LayoutResult; pxPerByte: 
                   pxPerByte={pxPerByte}
                   open={!!open[fl.fieldId]}
                   onToggle={() => setOpen((o) => ({ ...o, [fl.fieldId]: !o[fl.fieldId] }))}
+                  bg={colorMap[fl.fieldId]}
                 />
               </Fragment>
             ))}
@@ -285,6 +312,9 @@ export default function LayoutVisualizer() {
       ? Math.max(4, Math.min(48, Math.floor(containerW / layout.totalSize)))
       : 28;
 
+  // Alan renkleri: kimlikten stabil, komşular garanti farklı (tek kaynak: band + legend).
+  const colorMap = assignFieldColors(layout.fields);
+
   // Opsiyonel byte bütçesi: aşılırsa uyarı.
   const [byteLimit, setByteLimit] = useState<number | "">("");
   const overLimit =
@@ -328,7 +358,7 @@ export default function LayoutVisualizer() {
           )}
 
           <div ref={containerRef}>
-            <SortableBand layout={layout} pxPerByte={pxPerByte} />
+            <SortableBand layout={layout} pxPerByte={pxPerByte} colorMap={colorMap} />
           </div>
 
           <p className="mt-2 text-[11px] text-muted">
@@ -341,7 +371,7 @@ export default function LayoutVisualizer() {
               <span key={fl.fieldId} className="flex items-center gap-1 text-[11px]">
                 <span
                   className="inline-block h-3 w-3 rounded-sm"
-                  style={{ background: colorForField(fl.fieldId) }}
+                  style={{ background: colorMap[fl.fieldId] }}
                 />
                 {fieldLabel(fl)}
                 {fl.type === "struct" && <span className="text-muted">:{fl.typeName}</span>}

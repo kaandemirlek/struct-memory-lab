@@ -32,8 +32,20 @@ import Panel from "@/components/ui/Panel";
 
 type Mode = "edit" | "compare";
 
-// Stable color palette for fields.
-const COLORS = ["#60a5fa", "#34d399", "#f472b6", "#fbbf24", "#a78bfa", "#fb7185"];
+// Stable color palette for fields. Daha çok renk = kimlik-bazlı sabit renklerde
+// iki bloğun aynı renge düşme olasılığı azalır (kararlılık bozulmadan).
+const COLORS = [
+  "#60a5fa", // blue
+  "#34d399", // emerald
+  "#f472b6", // pink
+  "#fbbf24", // amber
+  "#a78bfa", // violet
+  "#fb7185", // rose
+  "#22d3ee", // cyan
+  "#a3e635", // lime
+  "#fb923c", // orange
+  "#e879f9", // fuchsia
+];
 
 // ============================================================================
 // Compare-mode helpers (side-by-side From/To layouts with change impacts).
@@ -239,25 +251,23 @@ function LayoutStrip({
 // Edit-mode helpers (interactive map: drag-reorder, nested expand, bit-fields).
 // ============================================================================
 
-// Alan kimliğinden stabil bir palet indeksi (reorder'da renk mümkün olduğunca sabit).
-function colorIndexForId(id: string): number {
-  let hash = 0;
-  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) | 0;
-  return Math.abs(hash) % COLORS.length;
-}
-
 /**
- * Alanlara renk ata: temel renk kimlikten (stabil) gelir, ama YAN YANA iki blok
- * aynı renge düşerse ikinciyi bir sonraki renge kaydır → komşular her zaman farklı.
+ * Alanlara renk ata: her alan, KİMLİK KÜMESİNDEKİ sıralı sırasına (sorted rank)
+ * göre paletten renk alır. Atama görsel sıraya bağlı DEĞİL → alanları reorder
+ * etmek bir bloğun rengini DEĞİŞTİRMEZ. Ayrıca palet kadar (≤10) alanda renkler
+ * BENZERSİZDİR, yani bloklar birbirine karışmaz. (Alan ekley/çıkarınca sıralama
+ * kayabilir; kritik olan reorder kararlılığı korunur.)
  */
 function assignFieldColors(fields: { fieldId: string }[]): Record<string, string> {
+  const rankById = new Map<string, number>();
+  fields
+    .map((f) => f.fieldId)
+    .sort()
+    .forEach((id, i) => rankById.set(id, i));
+
   const map: Record<string, string> = {};
-  let prev = -1;
   for (const f of fields) {
-    let idx = colorIndexForId(f.fieldId);
-    if (idx === prev) idx = (idx + 1) % COLORS.length; // komşuyla çakışmayı boz
-    map[f.fieldId] = COLORS[idx];
-    prev = idx;
+    map[f.fieldId] = COLORS[(rankById.get(f.fieldId) ?? 0) % COLORS.length];
   }
   return map;
 }
@@ -334,22 +344,8 @@ function Band({ layout, pxPerByte }: { layout: LayoutResult; pxPerByte: number }
   );
 }
 
-// Sürüklenebilir tek bir alan bloğu (dizi ise birden çok hücre içerir).
-function FieldBlock({
-  fl,
-  pxPerByte,
-  open,
-  onToggle,
-  bg,
-}: {
-  fl: FieldLayout;
-  pxPerByte: number;
-  open: boolean;
-  onToggle: () => void;
-  bg: string;
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: fl.fieldId });
+// Bir alan bloğunun ortak türetmeleri (sortable ve statik sürüm paylaşır).
+function fieldBlockParts(fl: FieldLayout, onToggle: () => void) {
   const arrayLength = Math.max(1, fl.arrayLength ?? 1);
   const elementSize = fl.elementSize ?? fl.size / arrayLength;
   const expandable = fl.type === "struct" && !!fl.nested;
@@ -365,22 +361,30 @@ function FieldBlock({
             ?.scrollIntoView({ behavior: "smooth", block: "center" })
       : undefined;
 
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-  };
+  const title = `${fieldLabel(fl)}: ${fl.typeName ?? fl.type} — offset ${fl.offset}, ${fl.size} bytes (drag: reorder${expandable ? " · click: expand/collapse" : isBitField ? " · click: Status Bits" : ""})`;
+  return { arrayLength, elementSize, expandable, handleClick, title };
+}
 
+// Bloğun iç hücreleri (dizi ise birden çok). Sortable ve statik sürüm ortak kullanır.
+function FieldCells({
+  fl,
+  pxPerByte,
+  bg,
+  arrayLength,
+  elementSize,
+  expandable,
+  open,
+}: {
+  fl: FieldLayout;
+  pxPerByte: number;
+  bg: string;
+  arrayLength: number;
+  elementSize: number;
+  expandable: boolean;
+  open: boolean;
+}) {
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      {...attributes}
-      {...listeners}
-      onClick={handleClick}
-      className="flex shrink-0 cursor-grab active:cursor-grabbing"
-      title={`${fieldLabel(fl)}: ${fl.typeName ?? fl.type} — offset ${fl.offset}, ${fl.size} bytes (drag: reorder${expandable ? " · click: expand/collapse" : isBitField ? " · click: Status Bits" : ""})`}
-    >
+    <>
       {Array.from({ length: arrayLength }).map((_, ai) => (
         <div
           key={ai}
@@ -397,6 +401,83 @@ function FieldBlock({
           </span>
         </div>
       ))}
+    </>
+  );
+}
+
+// Sürüklenebilir alan bloğu (yalnızca mount SONRASI render edilir → dnd-kit id'leri SSR'ı bozmaz).
+function FieldBlock({
+  fl,
+  pxPerByte,
+  open,
+  onToggle,
+  bg,
+}: {
+  fl: FieldLayout;
+  pxPerByte: number;
+  open: boolean;
+  onToggle: () => void;
+  bg: string;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: fl.fieldId });
+  const { arrayLength, elementSize, expandable, handleClick, title } = fieldBlockParts(fl, onToggle);
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      onClick={handleClick}
+      className="flex shrink-0 cursor-grab active:cursor-grabbing"
+      title={title}
+    >
+      <FieldCells
+        fl={fl}
+        pxPerByte={pxPerByte}
+        bg={bg}
+        arrayLength={arrayLength}
+        elementSize={elementSize}
+        expandable={expandable}
+        open={open}
+      />
+    </div>
+  );
+}
+
+// Statik alan bloğu (SSR + ilk istemci render'ı; dnd yok → hydration güvenli, aynı görünür).
+function StaticFieldBlock({
+  fl,
+  pxPerByte,
+  open,
+  onToggle,
+  bg,
+}: {
+  fl: FieldLayout;
+  pxPerByte: number;
+  open: boolean;
+  onToggle: () => void;
+  bg: string;
+}) {
+  const { arrayLength, elementSize, expandable, handleClick, title } = fieldBlockParts(fl, onToggle);
+  return (
+    <div onClick={handleClick} className="flex shrink-0 cursor-grab" title={title}>
+      <FieldCells
+        fl={fl}
+        pxPerByte={pxPerByte}
+        bg={bg}
+        arrayLength={arrayLength}
+        elementSize={elementSize}
+        expandable={expandable}
+        open={open}
+      />
     </div>
   );
 }
@@ -431,6 +512,11 @@ function SortableBand({
   const reorderFields = useStructStore((s) => s.reorderFields);
   const [open, setOpen] = useState<Record<string, boolean>>({});
 
+  // dnd-kit SSR'da benzersiz erişilebilirlik id'leri üretir (DndDescribedBy-N) →
+  // sunucu/istemci uyuşmazlığı. Mount'tan önce statik, sonra sürüklenebilir render et.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
@@ -447,32 +533,42 @@ function SortableBand({
   const last = layout.fields[layout.fields.length - 1];
   const tail = last ? layout.totalSize - (last.offset + last.size) : 0;
 
+  // Mount durumuna göre sortable ya da statik blok (ikisi de aynı prop imzası + görünüm).
+  const Block = mounted ? FieldBlock : StaticFieldBlock;
+  const band = (
+    <div className="flex h-16 w-max overflow-hidden rounded-lg border border-border">
+      {layout.fields.map((fl) => (
+        <Fragment key={fl.fieldId}>
+          {fl.paddingBefore > 0 && (
+            <PaddingCell size={fl.paddingBefore} pxPerByte={pxPerByte} />
+          )}
+          <Block
+            fl={fl}
+            pxPerByte={pxPerByte}
+            open={!!open[fl.fieldId]}
+            onToggle={() => setOpen((o) => ({ ...o, [fl.fieldId]: !o[fl.fieldId] }))}
+            bg={colorMap[fl.fieldId]}
+          />
+        </Fragment>
+      ))}
+      {tail > 0 && <PaddingCell size={tail} pxPerByte={pxPerByte} />}
+    </div>
+  );
+
   return (
     <div className="overflow-x-auto">
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-        <SortableContext
-          items={layout.fields.map((f) => f.fieldId)}
-          strategy={horizontalListSortingStrategy}
-        >
-          <div className="flex h-16 w-max overflow-hidden rounded-lg border border-border">
-            {layout.fields.map((fl) => (
-              <Fragment key={fl.fieldId}>
-                {fl.paddingBefore > 0 && (
-                  <PaddingCell size={fl.paddingBefore} pxPerByte={pxPerByte} />
-                )}
-                <FieldBlock
-                  fl={fl}
-                  pxPerByte={pxPerByte}
-                  open={!!open[fl.fieldId]}
-                  onToggle={() => setOpen((o) => ({ ...o, [fl.fieldId]: !o[fl.fieldId] }))}
-                  bg={colorMap[fl.fieldId]}
-                />
-              </Fragment>
-            ))}
-            {tail > 0 && <PaddingCell size={tail} pxPerByte={pxPerByte} />}
-          </div>
-        </SortableContext>
-      </DndContext>
+      {mounted ? (
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <SortableContext
+            items={layout.fields.map((f) => f.fieldId)}
+            strategy={horizontalListSortingStrategy}
+          >
+            {band}
+          </SortableContext>
+        </DndContext>
+      ) : (
+        band
+      )}
 
       {/* Offset cetveli (band ile aynı genişlikler). */}
       <div className="mt-1 flex w-max">

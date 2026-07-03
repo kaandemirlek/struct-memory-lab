@@ -1,22 +1,43 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import {
-  resolveComparison,
-  useStructStore,
-} from "@/store/useStructStore";
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  horizontalListSortingStrategy,
+  sortableKeyboardCoordinates,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { resolveComparison, useStructStore } from "@/store/useStructStore";
 import { computeLayout } from "@/engine/layout";
 import { toSegments, type LayoutSegment } from "@/engine/segments";
-import {
-  analyzeFieldImpacts,
-  type FieldImpact,
-} from "@/engine/compatibility";
-import type { LayoutResult, StructModel, WarningSeverity } from "@/types";
+import { analyzeFieldImpacts, type FieldImpact } from "@/engine/compatibility";
+import { isUnsignedInt } from "@/engine/bitfields";
+import type {
+  FieldLayout,
+  LayoutResult,
+  StructModel,
+  WarningSeverity,
+} from "@/types";
 import Panel from "@/components/ui/Panel";
 
 type Mode = "edit" | "compare";
 
+// Stable color palette for fields.
 const COLORS = ["#60a5fa", "#34d399", "#f472b6", "#fbbf24", "#a78bfa", "#fb7185"];
+
+// ============================================================================
+// Compare-mode helpers (side-by-side From/To layouts with change impacts).
+// ============================================================================
 
 const SEVERITY_RANK: Record<WarningSeverity, number> = {
   danger: 0,
@@ -214,6 +235,279 @@ function LayoutStrip({
   );
 }
 
+// ============================================================================
+// Edit-mode helpers (interactive map: drag-reorder, nested expand, bit-fields).
+// ============================================================================
+
+// Alan kimliğinden stabil bir palet indeksi (reorder'da renk mümkün olduğunca sabit).
+function colorIndexForId(id: string): number {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) | 0;
+  return Math.abs(hash) % COLORS.length;
+}
+
+/**
+ * Alanlara renk ata: temel renk kimlikten (stabil) gelir, ama YAN YANA iki blok
+ * aynı renge düşerse ikinciyi bir sonraki renge kaydır → komşular her zaman farklı.
+ */
+function assignFieldColors(fields: { fieldId: string }[]): Record<string, string> {
+  const map: Record<string, string> = {};
+  let prev = -1;
+  for (const f of fields) {
+    let idx = colorIndexForId(f.fieldId);
+    if (idx === prev) idx = (idx + 1) % COLORS.length; // komşuyla çakışmayı boz
+    map[f.fieldId] = COLORS[idx];
+    prev = idx;
+  }
+  return map;
+}
+
+const fieldLabel = (fl: FieldLayout) =>
+  (fl.arrayLength ?? 1) > 1 ? `${fl.name}[${fl.arrayLength}]` : fl.name;
+
+// Salt-okunur özyinelemeli band (nested struct iç yerleşimi + önizleme için; reorder yok).
+function Band({ layout, pxPerByte }: { layout: LayoutResult; pxPerByte: number }) {
+  const segments = toSegments(layout);
+  const [open, setOpen] = useState<Record<number, boolean>>({});
+
+  return (
+    <div className="overflow-x-auto">
+      <div className="flex h-16 w-max overflow-hidden rounded-lg border border-border">
+        {segments.map((s, i) => {
+          if (s.kind === "padding") {
+            return (
+              <div
+                key={i}
+                style={{
+                  width: s.size * pxPerByte,
+                  backgroundImage:
+                    "repeating-linear-gradient(45deg, rgba(120,120,120,.30) 0 4px, transparent 4px 8px)",
+                }}
+                className="flex shrink-0 items-center justify-center border-r border-border text-[10px] text-muted last:border-r-0"
+                title={`padding: ${s.size} wasted bytes`}
+              >
+                {s.size}
+              </div>
+            );
+          }
+          const expandable = s.type === "struct" && !!s.nested;
+          const isOpen = expandable && open[s.offset];
+          const displayName =
+            s.arrayIndex === undefined ? s.name : `${s.name}[${s.arrayIndex}]`;
+          return (
+            <div
+              key={i}
+              onClick={
+                expandable
+                  ? () => setOpen((o) => ({ ...o, [s.offset]: !o[s.offset] }))
+                  : undefined
+              }
+              style={{
+                width: s.size * pxPerByte,
+                background: COLORS[s.colorIndex! % COLORS.length],
+              }}
+              className={`flex shrink-0 flex-col items-center justify-center overflow-hidden border-r border-black/10 text-xs text-black last:border-r-0 ${expandable ? "cursor-pointer" : ""}`}
+              title={`${displayName}: ${s.typeName ?? s.type} — offset ${s.offset}, ${s.size} bytes`}
+            >
+              <span className="max-w-full truncate px-1 font-medium">
+                {displayName}
+                {expandable && <span className="ml-0.5">{isOpen ? "▾" : "▸"}</span>}
+              </span>
+              <span className="max-w-full truncate px-1 opacity-70">
+                {s.type === "struct" ? s.typeName : `${s.size}B`}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      {segments
+        .filter((s) => s.kind === "field" && s.type === "struct" && s.nested && open[s.offset])
+        .map((s, i) => (
+          <div key={i} className="mt-3 border-l-2 border-accent/40 pl-3">
+            <div className="mb-1 text-xs text-muted">
+              ▾ {s.name}: {s.typeName} — inner layout ({s.nested!.totalSize} B)
+            </div>
+            <Band layout={s.nested!} pxPerByte={pxPerByte} />
+          </div>
+        ))}
+    </div>
+  );
+}
+
+// Sürüklenebilir tek bir alan bloğu (dizi ise birden çok hücre içerir).
+function FieldBlock({
+  fl,
+  pxPerByte,
+  open,
+  onToggle,
+  bg,
+}: {
+  fl: FieldLayout;
+  pxPerByte: number;
+  open: boolean;
+  onToggle: () => void;
+  bg: string;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: fl.fieldId });
+  const arrayLength = Math.max(1, fl.arrayLength ?? 1);
+  const elementSize = fl.elementSize ?? fl.size / arrayLength;
+  const expandable = fl.type === "struct" && !!fl.nested;
+  const isBitField = isUnsignedInt(fl.type);
+
+  // struct → aç/kapat · unsigned → Status Bits editörüne kaydır.
+  const handleClick = expandable
+    ? onToggle
+    : isBitField
+      ? () =>
+          document
+            .getElementById(`bits-${fl.fieldId}`)
+            ?.scrollIntoView({ behavior: "smooth", block: "center" })
+      : undefined;
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      onClick={handleClick}
+      className="flex shrink-0 cursor-grab active:cursor-grabbing"
+      title={`${fieldLabel(fl)}: ${fl.typeName ?? fl.type} — offset ${fl.offset}, ${fl.size} bytes (drag: reorder${expandable ? " · click: expand/collapse" : isBitField ? " · click: Status Bits" : ""})`}
+    >
+      {Array.from({ length: arrayLength }).map((_, ai) => (
+        <div
+          key={ai}
+          style={{ width: elementSize * pxPerByte, background: bg }}
+          className="flex h-16 shrink-0 flex-col items-center justify-center overflow-hidden border-r border-black/10 text-xs text-black"
+        >
+          <span className="max-w-full truncate px-1 font-medium">
+            {fl.name}
+            {arrayLength > 1 ? `[${ai}]` : ""}
+            {expandable && ai === 0 && <span className="ml-0.5">{open ? "▾" : "▸"}</span>}
+          </span>
+          <span className="max-w-full truncate px-1 opacity-70">
+            {fl.type === "struct" ? fl.typeName : `${elementSize}B`}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function PaddingCell({ size, pxPerByte }: { size: number; pxPerByte: number }) {
+  return (
+    <div
+      style={{
+        width: size * pxPerByte,
+        backgroundImage:
+          "repeating-linear-gradient(45deg, rgba(120,120,120,.30) 0 4px, transparent 4px 8px)",
+      }}
+      className="flex h-16 shrink-0 items-center justify-center border-r border-border text-[10px] text-muted"
+      title={`padding: ${size} wasted bytes`}
+    >
+      {size}
+    </div>
+  );
+}
+
+// Üst seviye band: alanlar dnd-kit ile sürüklenip yeniden sıralanabilir.
+function SortableBand({
+  layout,
+  pxPerByte,
+  colorMap,
+}: {
+  layout: LayoutResult;
+  pxPerByte: number;
+  colorMap: Record<string, string>;
+}) {
+  const model = useStructStore((s) => s.currentModel);
+  const reorderFields = useStructStore((s) => s.reorderFields);
+  const [open, setOpen] = useState<Record<string, boolean>>({});
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  const handleDragEnd = (e: DragEndEvent) => {
+    const { active, over } = e;
+    if (!over || active.id === over.id) return;
+    const from = model.fields.findIndex((f) => f.id === active.id);
+    const to = model.fields.findIndex((f) => f.id === over.id);
+    if (from >= 0 && to >= 0) reorderFields(from, to);
+  };
+
+  const last = layout.fields[layout.fields.length - 1];
+  const tail = last ? layout.totalSize - (last.offset + last.size) : 0;
+
+  return (
+    <div className="overflow-x-auto">
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        <SortableContext
+          items={layout.fields.map((f) => f.fieldId)}
+          strategy={horizontalListSortingStrategy}
+        >
+          <div className="flex h-16 w-max overflow-hidden rounded-lg border border-border">
+            {layout.fields.map((fl) => (
+              <Fragment key={fl.fieldId}>
+                {fl.paddingBefore > 0 && (
+                  <PaddingCell size={fl.paddingBefore} pxPerByte={pxPerByte} />
+                )}
+                <FieldBlock
+                  fl={fl}
+                  pxPerByte={pxPerByte}
+                  open={!!open[fl.fieldId]}
+                  onToggle={() => setOpen((o) => ({ ...o, [fl.fieldId]: !o[fl.fieldId] }))}
+                  bg={colorMap[fl.fieldId]}
+                />
+              </Fragment>
+            ))}
+            {tail > 0 && <PaddingCell size={tail} pxPerByte={pxPerByte} />}
+          </div>
+        </SortableContext>
+      </DndContext>
+
+      {/* Offset cetveli (band ile aynı genişlikler). */}
+      <div className="mt-1 flex w-max">
+        {layout.fields.map((fl) => (
+          <Fragment key={fl.fieldId}>
+            {fl.paddingBefore > 0 && (
+              <div style={{ width: fl.paddingBefore * pxPerByte }} className="shrink-0" />
+            )}
+            <div
+              style={{ width: fl.size * pxPerByte }}
+              className="shrink-0 text-[10px] text-muted"
+            >
+              {fl.offset}
+            </div>
+          </Fragment>
+        ))}
+        <span className="pl-0.5 text-[10px] text-muted">{layout.totalSize}</span>
+      </div>
+
+      {/* Açılan nested struct'ların iç yerleşimi. */}
+      {layout.fields
+        .filter((fl) => fl.type === "struct" && fl.nested && open[fl.fieldId])
+        .map((fl) => (
+          <div key={fl.fieldId} className="mt-3 border-l-2 border-accent/40 pl-3">
+            <div className="mb-1 text-xs text-muted">
+              ▾ {fieldLabel(fl)}: {fl.typeName} — inner layout ({fl.nested!.totalSize} B,
+              align {fl.nested!.alignment} B)
+            </div>
+            <Band layout={fl.nested!} pxPerByte={pxPerByte} />
+          </div>
+        ))}
+    </div>
+  );
+}
+
 export default function LayoutVisualizer({ mode = "edit" }: { mode?: Mode }) {
   const model = useStructStore((s) => s.currentModel);
   const versions = useStructStore((s) => s.versions);
@@ -221,7 +515,21 @@ export default function LayoutVisualizer({ mode = "edit" }: { mode?: Mode }) {
   const targetVersionId = useStructStore((s) => s.targetVersionId);
   const previewVersionId = useStructStore((s) => s.previewVersionId);
   const setPreviewVersion = useStructStore((s) => s.setPreviewVersion);
+
+  // Compare mode: manual zoom. Edit mode: auto-scale to the container width.
   const [pxPerByte, setPxPerByte] = useState(28);
+  const [byteLimit, setByteLimit] = useState<number | "">("");
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerW, setContainerW] = useState(0);
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) =>
+      setContainerW(entries[0].contentRect.width)
+    );
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   // Edit sekmesinde bir snapshot önizleniyorsa onu SALT-OKUNUR göster;
   // currentModel'e (Live) dokunma. Bulunamazsa Live'a düş.
@@ -235,44 +543,7 @@ export default function LayoutVisualizer({ mode = "edit" }: { mode?: Mode }) {
     mode === "compare" && cmp.fromModel && cmp.toModel && cmp.fromValue !== cmp.toValue
   );
 
-  const currentLayout = computeLayout(editModelToShow);
-  const currentSegments = toSegments(currentLayout);
-
-  const fromLayout =
-    isComparison && cmp.fromModel ? computeLayout(cmp.fromModel) : null;
-  const toLayout =
-    isComparison && cmp.toModel ? computeLayout(cmp.toModel) : null;
-  const targetImpacts =
-    isComparison && cmp.fromModel && cmp.toModel
-      ? analyzeFieldImpacts(cmp.fromModel, cmp.toModel)
-      : [];
-  const targetImpactsById = new Map(
-    targetImpacts.map((impact) => [impact.fieldId, impact])
-  );
-  const colorById =
-    isComparison && cmp.fromModel && cmp.toModel
-      ? buildColorById(cmp.fromModel, cmp.toModel)
-      : undefined;
-
-  const zoomControl = (
-    <div className="flex items-center gap-2">
-      <label className="text-xs text-muted" htmlFor={`zoom-${mode}`}>
-        Zoom
-      </label>
-      <input
-        id={`zoom-${mode}`}
-        type="range"
-        min={6}
-        max={64}
-        step={1}
-        value={pxPerByte}
-        onChange={(e) => setPxPerByte(Number(e.target.value))}
-        className="flex-1 accent-accent"
-      />
-      <span className="text-xs tabular-nums text-muted">{pxPerByte} px/byte</span>
-    </div>
-  );
-
+  // ---- Compare mode ----
   if (mode === "compare") {
     if (!cmp.fromModel || !cmp.toModel) {
       return (
@@ -282,7 +553,10 @@ export default function LayoutVisualizer({ mode = "edit" }: { mode?: Mode }) {
       );
     }
 
-    if (!isComparison || !fromLayout || !toLayout) {
+    const fromLayout = computeLayout(cmp.fromModel);
+    const toLayout = computeLayout(cmp.toModel);
+
+    if (!isComparison) {
       return (
         <Panel title="Compared Layouts" description={`${cmp.fromLabel} -> ${cmp.toLabel}`}>
           <p className="text-sm text-muted">Choose two different comparison targets.</p>
@@ -290,10 +564,31 @@ export default function LayoutVisualizer({ mode = "edit" }: { mode?: Mode }) {
       );
     }
 
+    const targetImpacts = analyzeFieldImpacts(cmp.fromModel, cmp.toModel);
+    const targetImpactsById = new Map(
+      targetImpacts.map((impact) => [impact.fieldId, impact])
+    );
+    const colorById = buildColorById(cmp.fromModel, cmp.toModel);
+
     return (
       <div className="space-y-3">
         <div className="rounded-lg border border-border bg-surface p-3 shadow-sm">
-          {zoomControl}
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-muted" htmlFor="zoom-compare">
+              Zoom
+            </label>
+            <input
+              id="zoom-compare"
+              type="range"
+              min={6}
+              max={64}
+              step={1}
+              value={pxPerByte}
+              onChange={(e) => setPxPerByte(Number(e.target.value))}
+              className="flex-1 accent-accent"
+            />
+            <span className="text-xs tabular-nums text-muted">{pxPerByte} px/byte</span>
+          </div>
         </div>
 
         <div className="grid min-w-0 items-start gap-4 xl:grid-cols-2">
@@ -326,18 +621,27 @@ export default function LayoutVisualizer({ mode = "edit" }: { mode?: Mode }) {
     );
   }
 
+  // ---- Edit mode (interactive map + read-only snapshot preview) ----
+  const layout = computeLayout(editModelToShow);
+  const hasNested = layout.fields.some((f) => f.type === "struct" && f.nested);
+  const autoPxPerByte =
+    layout.totalSize > 0 && containerW > 0
+      ? Math.max(4, Math.min(48, Math.floor(containerW / layout.totalSize)))
+      : 28;
+  const colorMap = assignFieldColors(layout.fields);
+  const overLimit =
+    typeof byteLimit === "number" && byteLimit > 0 && layout.totalSize > byteLimit;
+
   return (
     <Panel
       title={previewVersion ? `Memory Layout — ${previewVersion.label}` : "Memory Layout"}
-      description={`size ${currentLayout.totalSize} B / align ${currentLayout.alignment} B / padding ${currentLayout.totalPadding} B`}
+      description={`size ${layout.totalSize} B · align ${layout.alignment} B · padding ${layout.totalPadding} B`}
     >
       {previewVersion && (
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-accent/40 bg-accent/10 px-3 py-2 text-xs">
           <span className="min-w-0 text-muted">
             Previewing{" "}
-            <span className="font-semibold text-foreground">
-              {previewVersion.label}
-            </span>{" "}
+            <span className="font-semibold text-foreground">{previewVersion.label}</span>{" "}
             (read-only) — your live edits are untouched.
           </span>
           <button
@@ -350,15 +654,74 @@ export default function LayoutVisualizer({ mode = "edit" }: { mode?: Mode }) {
         </div>
       )}
 
-      <div className="mb-3">
-        {zoomControl}
-      </div>
+      {layout.fields.length === 0 ? (
+        <p className="text-sm text-muted">Add fields to see the memory layout.</p>
+      ) : (
+        <>
+          <div className="mb-3 flex items-center gap-2">
+            <label className="text-xs text-muted" htmlFor="byte-limit">
+              Byte limit
+            </label>
+            <input
+              id="byte-limit"
+              type="number"
+              min={0}
+              value={byteLimit}
+              onChange={(e) =>
+                setByteLimit(
+                  e.target.value === "" ? "" : Math.max(0, Number(e.target.value) || 0)
+                )
+              }
+              placeholder="optional"
+              className="w-24 rounded-lg border border-border bg-surface-muted px-2 py-1 text-xs outline-none focus:border-accent"
+            />
+            <span className="text-xs text-muted">warns if exceeded</span>
+          </div>
 
-      <LayoutStrip
-        layout={currentLayout}
-        segments={currentSegments}
-        pxPerByte={pxPerByte}
-      />
+          {overLimit && (
+            <div
+              className="mb-3 rounded-lg border border-danger/30 bg-danger/10 p-2 text-xs text-danger"
+              role="alert"
+            >
+              Struct is {layout.totalSize} B — exceeds the {byteLimit} B limit by{" "}
+              {layout.totalSize - (byteLimit as number)} B.
+            </div>
+          )}
+
+          <div ref={containerRef}>
+            {previewVersion ? (
+              <Band layout={layout} pxPerByte={autoPxPerByte} />
+            ) : (
+              <SortableBand layout={layout} pxPerByte={autoPxPerByte} colorMap={colorMap} />
+            )}
+          </div>
+
+          <p className="mt-2 text-[11px] text-muted">
+            {previewVersion
+              ? hasNested
+                ? "Read-only preview · click a struct to expand its layout."
+                : "Read-only preview."
+              : `Tip: drag fields to reorder${hasNested ? " · click a struct to expand its layout" : ""}.`}
+          </p>
+
+          {/* Legend (alan başına bir giriş). */}
+          <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+            {layout.fields.map((fl) => (
+              <span key={fl.fieldId} className="flex items-center gap-1 text-[11px]">
+                <span
+                  className="inline-block h-3 w-3 rounded-sm"
+                  style={{ background: colorMap[fl.fieldId] }}
+                />
+                {fieldLabel(fl)}
+                {fl.type === "struct" && <span className="text-muted">:{fl.typeName}</span>}
+                <span className="text-muted">
+                  @{fl.offset}·{fl.size}B
+                </span>
+              </span>
+            ))}
+          </div>
+        </>
+      )}
     </Panel>
   );
 }

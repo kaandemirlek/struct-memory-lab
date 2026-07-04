@@ -11,7 +11,7 @@ export default function WorkspaceShell() {
 
   return (
     <>
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(280px,360px)_minmax(0,1fr)_auto]">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(300px,440px)_minmax(0,1fr)_auto]">
         <div className="space-y-5">
           <FieldEditor />
         </div>

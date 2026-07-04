@@ -46,6 +46,51 @@ function GripIcon() {
   );
 }
 
+// Dizi uzunluğu input'u: klavye/numpad ile elle (çok haneli) yazmaya izin verir.
+// Kontrollü sayıyı her tuşta kırpmak yerine yerel bir taslak tutar → alanı
+// boşaltıp yeniden yazabilirsin; 1..1024 normalize etme blur'da yapılır. Ok
+// tuşları (spinner) da çalışmaya devam eder.
+function ArrayLengthInput({ field }: { field: Field }) {
+  const updateField = useStructStore((s) => s.updateField);
+  const [draft, setDraft] = useState(String(field.arrayLength));
+  const [syncedLen, setSyncedLen] = useState(field.arrayLength);
+
+  // Dış kaynaklı değişimi (undo/redo, reorder, import) taslağa yansıt — effect
+  // KULLANMADAN, render sırasında; böylece elle yazım kesintiye uğramaz.
+  if (field.arrayLength !== syncedLen) {
+    setSyncedLen(field.arrayLength);
+    setDraft(String(field.arrayLength));
+  }
+
+  return (
+    <input
+      type="number"
+      inputMode="numeric"
+      min={1}
+      max={1024}
+      value={draft}
+      onChange={(e) => {
+        const raw = e.target.value;
+        setDraft(raw); // ham değer (boş/aşamalı olabilir) → elle yazmaya izin ver
+        const n = Math.floor(Number(raw));
+        if (raw !== "" && n >= 1 && n <= 1024) {
+          setSyncedLen(n);
+          updateField(field.id, { arrayLength: n });
+        }
+      }}
+      onBlur={() => {
+        const n = Math.max(1, Math.min(1024, Math.floor(Number(draft) || 1)));
+        setDraft(String(n));
+        setSyncedLen(n);
+        if (n !== field.arrayLength) updateField(field.id, { arrayLength: n });
+      }}
+      aria-label={`Array length for ${field.name}`}
+      title="Array length"
+      className={`w-12 text-center ${inputClass}`}
+    />
+  );
+}
+
 // Row content (name + type + remove) — shared by static and sortable rows.
 function FieldRowInner({ field }: { field: Field }) {
   const { updateField, removeField } = useStructStore();
@@ -54,6 +99,7 @@ function FieldRowInner({ field }: { field: Field }) {
       <input
         value={field.name}
         onChange={(e) => updateField(field.id, { name: e.target.value })}
+        aria-label={`Name for ${field.name}`}
         className={`flex-1 ${inputClass}`}
       />
       <select
@@ -64,7 +110,8 @@ function FieldRowInner({ field }: { field: Field }) {
           // primitive'e dönüşte iç içe struct verisini temizle (layout/export tutarlı kalsın)
           updateField(field.id, { type: v, nested: undefined });
         }}
-        className={inputClass}
+        aria-label={`Type for ${field.name}`}
+        className={`w-[92px] shrink-0 ${inputClass}`}
       >
         {/* Nested alan: gerçek tipi ("struct") seçili gösterilemediği için struct adını
             (Vec3) bir option olarak ekle; böylece "bool" yerine doğru tip görünür. */}
@@ -77,25 +124,9 @@ function FieldRowInner({ field }: { field: Field }) {
           </option>
         ))}
       </select>
-      <label className="flex items-center gap-1">
+      <label className="flex shrink-0 items-center gap-1">
         <span className="text-xs text-muted">×</span>
-        <input
-          type="number"
-          min={1}
-          max={1024}
-          value={field.arrayLength}
-          onChange={(e) =>
-            updateField(field.id, {
-              arrayLength: Math.max(
-                1,
-                Math.min(1024, Math.floor(Number(e.target.value) || 1))
-              ),
-            })
-          }
-          aria-label={`Array length for ${field.name}`}
-          title="Array length"
-          className={`w-16 text-center ${inputClass}`}
-        />
+        <ArrayLengthInput field={field} />
       </label>
       <button
         onClick={() => removeField(field.id)}

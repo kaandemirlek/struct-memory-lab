@@ -90,6 +90,12 @@ interface StructState {
    * Kalıcı değildir (persist edilmez) — sayfa yenilenince Live'a döner.
    */
   previewVersionId: string | null;
+  /**
+   * Memory Layout'ta tıklanan, Status Bits'te düzenlenmek üzere ODAKLANAN alan
+   * (null = odak yok). Status Bits paneli bu alanın editörünü en üste taşır ve
+   * vurgular. Kalıcı DEĞİLDİR (persist edilmez) — sayfa yenilenince sıfırlanır.
+   */
+  focusedBitFieldId: string | null;
 
   // --- PERSON A action'ları (currentModel düzenleme) ---
   setModel: (model: StructModel) => void;
@@ -117,6 +123,8 @@ interface StructState {
   loadVersion: (versionId: string) => void;
   /** Edit Layout'ta bir versiyonu salt-okunur önizle (null = Live). */
   setPreviewVersion: (versionId: string | null) => void;
+  /** Status Bits'te düzenlenecek alanı odakla (null = odak yok). */
+  setFocusedBitField: (fieldId: string | null) => void;
   /** Karşılaştırma kaynağını (From) seç (null = en son kaydedilen versiyon). */
   setBaseVersion: (versionId: string | null) => void;
   /** Karşılaştırma hedefini (To) seç (null = güncel düzenlemeler). */
@@ -156,6 +164,7 @@ export const useStructStore = create<StructState>()(
         baseVersionId: null,
         targetVersionId: null,
         previewVersionId: null,
+        focusedBitFieldId: null,
         past: [],
         future: [],
 
@@ -284,6 +293,8 @@ export const useStructStore = create<StructState>()(
         },
 
         setPreviewVersion: (versionId) => set({ previewVersionId: versionId }),
+
+        setFocusedBitField: (fieldId) => set({ focusedBitFieldId: fieldId }),
 
         setBaseVersion: (versionId) => set({ baseVersionId: versionId }),
 

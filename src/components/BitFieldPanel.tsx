@@ -471,14 +471,21 @@ function WordEditor({
   );
 }
 
-function FieldBitEditor({ field }: { field: Field }) {
+function FieldBitEditor({ field, focused }: { field: Field; focused: boolean }) {
   const [order, setOrder] = useState<BitOrder>("msb");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = (field.bitFields ?? []).find((bit) => bit.id === selectedId) ?? null;
   const warnings = bitWarningsForField(field);
-
+  // Odak vurgusu: Memory Layout'ta bu alana tıklanınca vurgulanır ve editörüne
+  // kaydırılır (kaydırma LayoutVisualizer'da imperatif yapılır). Vurgu, hangi
+  // alanın aktif olduğunu göstermek için başka bir alan seçilene dek kalır.
   return (
-    <section id={`bits-${field.id}`} className="scroll-mt-24 rounded-2xl border border-border p-4">
+    <section
+      id={`bits-${field.id}`}
+      className={`scroll-mt-24 rounded-2xl border p-4 transition-colors ${
+        focused ? "border-accent ring-2 ring-accent/60" : "border-border"
+      }`}
+    >
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h3 className="font-mono text-sm font-semibold">
@@ -540,12 +547,14 @@ const fieldArr = (field: Field) => (field.arrayLength > 1 ? `[${field.arrayLengt
 
 // Alan ağacını gezer: yalnızca bit-tanımlanabilir (unsigned) alanları editör olarak
 // gösterir; nested struct'lara inip içlerindeki unsigned alanları da düzenlenebilir kılar.
-function FieldTree({ fields }: { fields: Field[] }) {
+function FieldTree({ fields, focusedId }: { fields: Field[]; focusedId: string | null }) {
   return (
     <div className="space-y-4">
       {fields.map((field) => {
         if (isUnsignedInt(field.type)) {
-          return <FieldBitEditor key={field.id} field={field} />;
+          return (
+            <FieldBitEditor key={field.id} field={field} focused={field.id === focusedId} />
+          );
         }
         if (field.type === "struct" && field.nested && hasBitCapable(field)) {
           return (
@@ -555,7 +564,7 @@ function FieldTree({ fields }: { fields: Field[] }) {
                 {fieldArr(field)} · {field.nested.name} (nested)
               </div>
               <div className="border-l-2 border-accent/30 pl-3">
-                <FieldTree fields={field.nested.fields} />
+                <FieldTree fields={field.nested.fields} focusedId={focusedId} />
               </div>
             </div>
           );
@@ -568,6 +577,7 @@ function FieldTree({ fields }: { fields: Field[] }) {
 
 export default function BitFieldPanel() {
   const model = useStructStore((s) => s.currentModel);
+  const focusedBitFieldId = useStructStore((s) => s.focusedBitFieldId);
   const anyBitCapable = model.fields.some(hasBitCapable);
 
   return (
@@ -583,7 +593,7 @@ export default function BitFieldPanel() {
           </p>
         </div>
       ) : (
-        <FieldTree fields={model.fields} />
+        <FieldTree fields={model.fields} focusedId={focusedBitFieldId} />
       )}
     </Panel>
   );

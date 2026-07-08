@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useStructStore } from "@/store/useStructStore";
-import { parseCpp } from "@/engine/parser";
+import { parseCpp, parseModelJson } from "@/engine/parser";
 import Button from "@/components/ui/Button";
 import Modal from "@/components/ui/Modal";
 import CodeEditor from "@/components/ui/CodeEditor";
@@ -49,7 +49,12 @@ export default function ImportBox() {
 
   const handleParse = () => {
     try {
-      setModel(parseCpp(code));
+      // Formatı otomatik algıla: '{' ile başlıyorsa JSON (kayıpsız, status bits
+      // dahil), değilse C++ .hpp. JSON, buradan export edilen dosyanın birebir
+      // aynı görünmesini sağlar.
+      const trimmed = code.trim();
+      const model = trimmed.startsWith("{") ? parseModelJson(code) : parseCpp(code);
+      setModel(model);
       setError(null);
       setOpen(false);
     } catch (e) {
@@ -73,8 +78,8 @@ export default function ImportBox() {
       <Modal
         open={open}
         onClose={() => setOpen(false)}
-        title="Import C++ struct"
-        description="Paste a struct definition to load it into the editor."
+        title="Import struct"
+        description="Paste a C++ header or JSON. Files exported from here (either format) re-import exactly — including Status Bits."
         size="lg"
         footer={
           <>
@@ -113,7 +118,7 @@ export default function ImportBox() {
           <input
             ref={fileInputRef}
             type="file"
-            accept=".h,.hpp,.hh,.hxx,.cuh,.cpp,.cc,.cxx,.txt"
+            accept=".h,.hpp,.hh,.hxx,.cuh,.cpp,.cc,.cxx,.json,.txt"
             onChange={handleFile}
             className="hidden"
           />

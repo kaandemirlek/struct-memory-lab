@@ -10,12 +10,13 @@
 //   Desteklenmeyen: pointer, nested struct, bit-field, #pragma pack.
 // ============================================================================
 
-import type { ParseCpp, Field, CppPrimitive, StructModel } from "@/types";
+import type { BitField, ParseCpp, Field, CppPrimitive, StructModel } from "@/types";
 import { TYPE_INFO } from "@/types";
 import { makeId } from "@/store/useStructStore";
+import { EMBED_MARKER } from "@/engine/embed";
 
 // Bir string geçerli bir CppPrimitive mi? (TYPE_INFO'yu güvenlik kapısı yapıyoruz.)
-const isPrimitive = (t: string): t is CppPrimitive => t in TYPE_INFO; 
+const isPrimitive = (t: string): t is CppPrimitive => t in TYPE_INFO;
 
 // // satır yorumlarını ve /* ... */ blok yorumlarını siler.
 const stripComments = (s: string): string =>
@@ -108,7 +109,27 @@ function parseBody(body: string, registry: Map<string, StructModel>): Field[] {
   return fields;
 }
 
+// Header'a gömülü "// struct-memory-lab-model:{...}" satırını (varsa) çözer.
+// Bozuk/eksik veri → null (çağıran normal C++ parse'a düşer).
+function extractEmbeddedModel(code: string): StructModel | null {
+  for (const line of code.split(/\r?\n/)) {
+    const t = line.trimStart();
+    if (!t.startsWith(EMBED_MARKER)) continue;
+    try {
+      return normalizeModel(JSON.parse(t.slice(EMBED_MARKER.length).trim()) as Partial<StructModel>);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
 export const parseCpp: ParseCpp = (code) => {
+  // Bu araçtan export edilen header'da gömülü model satırı varsa onu KAYIPSIZ
+  // döndür (Status Bits, bit anlamları dahil). Elle yazılmış header'larda yok.
+  const embedded = extractEmbeddedModel(code);
+  if (embedded) return embedded;
+
   const clean = stripComments(code);
 
   // Tüm "struct <isim> { <gövde> }" bloklarını sırayla işle. Bir struct yalnızca
@@ -129,3 +150,81 @@ export const parseCpp: ParseCpp = (code) => {
   }
   return last;
 };
+
+// ============================================================================
+// JSON import — exportModelJson çıktısını KAYIPSIZ geri yükler.
+// C++ .hpp round-trip'i bit-alanı SEMANTİĞİNİ (isim/anlam/kind) taşıyamaz; bu
+// yüzden status bits'in de birebir dönmesi için JSON formatı kullanılır.
+// ============================================================================
+
+// Ham (untrusted) tip değerini doğrular; geçersizse anlaşılır hata verir.
+function coerceFieldType(raw: unknown, fieldName: string): Field["type"] {
+  if (raw === "struct") return "struct";
+  if (typeof raw === "string" && raw in TYPE_INFO) return raw as CppPrimitive;
+  throw new Error(`Bilinmeyen tip: "${String(raw)}"  (alan: ${fieldName})`);
+}
+
+function normalizeBitField(b: Partial<BitField>): BitField {
+  const bit: BitField = {
+    id: typeof b.id === "string" && b.id ? b.id : makeId("bit"),
+    name: typeof b.name === "string" ? b.name : "bit",
+    wordIndex: Math.max(0, Math.floor(Number(b.wordIndex) || 0)),
+    startBit: Math.max(0, Math.floor(Number(b.startBit) || 0)),
+    width: Math.max(1, Math.floor(Number(b.width) || 1)),
+  };
+  if (b.kind) bit.kind = b.kind;
+  if (Array.isArray(b.meanings)) {
+    bit.meanings = b.meanings.map((m) => ({
+      value: Math.floor(Number(m?.value) || 0),
+      label: typeof m?.label === "string" ? m.label : "",
+    }));
+  }
+  return bit;
+}
+
+function normalizeField(f: Partial<Field>): Field {
+  const name = typeof f.name === "string" ? f.name : "field";
+  const type = coerceFieldType(f.type, name);
+  const field: Field = {
+    id: typeof f.id === "string" && f.id ? f.id : makeId("f"),
+    name,
+    type,
+    arrayLength: Math.max(1, Math.floor(Number(f.arrayLength) || 1)),
+  };
+  if (type === "struct") {
+    if (!f.nested) throw new Error(`"${name}" struct ama nested tanımı yok.`);
+    field.nested = normalizeModel(f.nested);
+  }
+  if (Array.isArray(f.bitFields) && f.bitFields.length > 0) {
+    field.bitFields = f.bitFields.map(normalizeBitField);
+  }
+  return field;
+}
+
+function normalizeModel(m: Partial<StructModel>): StructModel {
+  if (!m || typeof m !== "object" || !Array.isArray(m.fields)) {
+    throw new Error('Geçerli bir struct JSON\'u değil (beklenen: { "name", "fields": [...] }).');
+  }
+  return {
+    name: typeof m.name === "string" ? m.name : "Struct",
+    fields: m.fields.map(normalizeField),
+  };
+}
+
+/**
+ * struct-memory-lab JSON'unu (exportModelJson çıktısı) StructModel'e çevirir.
+ * Hem tam export objesini ({ format, struct, layout }) hem de ham StructModel'i
+ * ({ name, fields }) kabul eder. bitFields / meanings / nested korunur.
+ */
+export function parseModelJson(text: string): StructModel {
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error("Geçersiz JSON.");
+  }
+  const obj = (data ?? {}) as Record<string, unknown>;
+  // Tam export objesi ise .struct'ı al; değilse ham modelin kendisi.
+  const raw = obj && typeof obj === "object" && "struct" in obj ? obj.struct : obj;
+  return normalizeModel(raw as Partial<StructModel>);
+}

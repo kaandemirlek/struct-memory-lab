@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   DndContext,
   closestCenter,
@@ -31,6 +31,10 @@ import type {
 import Panel from "@/components/ui/Panel";
 
 type Mode = "edit" | "compare";
+
+// Mount tespiti (SSR/hydration güvenli): sunucuda false, istemcide true.
+// dnd-kit id'leri yalnızca mount sonrası üretilir → hydration uyuşmazlığını önler.
+const subscribeToNothing = () => () => {};
 
 // Stable color palette for fields. Daha çok renk = kimlik-bazlı sabit renklerde
 // iki bloğun aynı renge düşme olasılığı azalır (kararlılık bozulmadan).
@@ -183,7 +187,10 @@ function LayoutStrip({
                   </span>
                 )}
                 <span className="max-w-full truncate px-1 font-medium">{s.name}</span>
-                <span className="opacity-70">{s.size}B</span>
+                <span className="max-w-full truncate px-1 font-mono text-[10px] leading-tight opacity-80">
+                  {s.typeName ?? s.type}
+                </span>
+                <span className="text-[9px] opacity-60">{s.size}B</span>
               </div>
             ) : (
               <div
@@ -323,8 +330,12 @@ function Band({ layout, pxPerByte }: { layout: LayoutResult; pxPerByte: number }
                 {displayName}
                 {expandable && <span className="ml-0.5">{isOpen ? "▾" : "▸"}</span>}
               </span>
-              <span className="max-w-full truncate px-1 opacity-70">
-                {s.type === "struct" ? s.typeName : `${s.size}B`}
+              {/* Veri tipi (ör. uint32_t / Vec3). */}
+              <span className="max-w-full truncate px-1 font-mono text-[10px] leading-tight opacity-80">
+                {s.typeName ?? s.type}
+              </span>
+              <span className="max-w-full truncate px-1 text-[9px] leading-tight opacity-60">
+                {s.size}B
               </span>
             </div>
           );
@@ -351,14 +362,20 @@ function fieldBlockParts(fl: FieldLayout, onToggle: () => void) {
   const expandable = fl.type === "struct" && !!fl.nested;
   const isBitField = isUnsignedInt(fl.type);
 
-  // struct → aç/kapat · unsigned → Status Bits editörüne kaydır.
+  // struct → aç/kapat · unsigned → o alanı Status Bits'te odakla + editörüne kaydır.
+  // Kaydırma HER tıklamada imperatif yapılır (odak zaten aynı alandaysa bile) →
+  // yukarı kaydırıp aynı alana tekrar tıklayınca yine oraya gider.
   const handleClick = expandable
     ? onToggle
     : isBitField
-      ? () =>
+      ? () => {
+          useStructStore.getState().setFocusedBitField(fl.fieldId);
+          // Editör her zaman DOM'da (odaktan bağımsız render edilir) → senkron
+          // kaydır. Her tıklamada çalışır: aynı alana tekrar tıklayınca yine gider.
           document
             .getElementById(`bits-${fl.fieldId}`)
-            ?.scrollIntoView({ behavior: "smooth", block: "center" })
+            ?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
       : undefined;
 
   const title = `${fieldLabel(fl)}: ${fl.typeName ?? fl.type} — offset ${fl.offset}, ${fl.size} bytes (drag: reorder${expandable ? " · click: expand/collapse" : isBitField ? " · click: Status Bits" : ""})`;
@@ -396,8 +413,12 @@ function FieldCells({
             {arrayLength > 1 ? `[${ai}]` : ""}
             {expandable && ai === 0 && <span className="ml-0.5">{open ? "▾" : "▸"}</span>}
           </span>
-          <span className="max-w-full truncate px-1 opacity-70">
-            {fl.type === "struct" ? fl.typeName : `${elementSize}B`}
+          {/* Alanın veri tipi (ör. uint32_t / Vec3) — kullanıcı doğrudan görsün. */}
+          <span className="max-w-full truncate px-1 font-mono text-[10px] leading-tight opacity-80">
+            {fl.typeName ?? fl.type}
+          </span>
+          <span className="max-w-full truncate px-1 text-[9px] leading-tight opacity-60">
+            {elementSize}B
           </span>
         </div>
       ))}
@@ -514,8 +535,7 @@ function SortableBand({
 
   // dnd-kit SSR'da benzersiz erişilebilirlik id'leri üretir (DndDescribedBy-N) →
   // sunucu/istemci uyuşmazlığı. Mount'tan önce statik, sonra sürüklenebilir render et.
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  const mounted = useSyncExternalStore(subscribeToNothing, () => true, () => false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),

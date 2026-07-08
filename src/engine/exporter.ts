@@ -10,6 +10,7 @@
 import type { CppPrimitive, Field, StructModel } from "@/types";
 import { bitsPerWord, isUnsignedInt } from "@/engine/bitfields";
 import { computeLayout } from "@/engine/layout";
+import { EMBED_MARKER } from "@/engine/embed";
 
 /** C++ .hpp dışa aktarımı için seçenekler. */
 export interface ExportCppOptions {
@@ -238,6 +239,15 @@ export function exportCpp(model: StructModel, options: ExportCppOptions = {}): s
       `// sizeof = ${layout.totalSize} bytes, alignment = ${layout.alignment} bytes, padding = ${layout.totalPadding} bytes`
     );
   }
+
+  // Geri-yükleme verisi: bu header tekrar import edilince modeli (Status Bits, bit
+  // anlamları vb. DAHİL) BİREBİR geri yükler. Yalnızca bir yorum olduğu için C++
+  // derlemesini etkilemez; elle yazılmış header'larda bulunmaz.
+  out.push(
+    "",
+    "// --- struct-memory-lab: model verisi (import edince Status Bits dahil birebir geri yüklenir; silmeyin) ---",
+    `${EMBED_MARKER}${JSON.stringify(model)}`
+  );
 
   return out.join("\n") + "\n";
 }

@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { parseCpp } from "@/engine/parser";
+import { parseCpp, parseModelJson } from "@/engine/parser";
+import { exportCpp, exportModelJson } from "@/engine/exporter";
+import type { StructModel } from "@/types";
 
 describe("parseCpp", () => {
   it("Player struct'ını isim ve alanlarıyla çözümler", () => {
@@ -105,5 +107,71 @@ describe("parseCpp", () => {
 
   it("tanımsız struct tipinde hata fırlatır", () => {
     expect(() => parseCpp("struct Q { Unknown u; };")).toThrow(/Bilinmeyen tip/);
+  });
+});
+
+describe("parseModelJson (JSON round-trip)", () => {
+  // bitFields + meanings + nested + dizi içeren tam bir model.
+  const model: StructModel = {
+    name: "Telemetry",
+    fields: [
+      {
+        id: "f_status",
+        name: "statusWord",
+        type: "uint32_t",
+        arrayLength: 1,
+        bitFields: [
+          { id: "b_ok", name: "irCameraFail", wordIndex: 0, startBit: 0, width: 1, kind: "flag", meanings: [{ value: 0, label: "OK" }, { value: 1, label: "FAIL" }] },
+          { id: "b_mode", name: "operationMode", wordIndex: 0, startBit: 1, width: 3, kind: "enum", meanings: [] },
+        ],
+      },
+      {
+        id: "f_pos",
+        name: "position",
+        type: "struct",
+        arrayLength: 1,
+        nested: {
+          name: "Vec3",
+          fields: [
+            { id: "f_x", name: "x", type: "float", arrayLength: 1 },
+            { id: "f_y", name: "y", type: "float", arrayLength: 1 },
+            { id: "f_z", name: "z", type: "float", arrayLength: 1 },
+          ],
+        },
+      },
+      { id: "f_age", name: "age", type: "uint32_t", arrayLength: 5 },
+    ],
+  };
+
+  it("export → import KAYIPSIZ: bitFields, meanings ve nested korunur", () => {
+    const restored = parseModelJson(exportModelJson(model));
+    expect(restored).toEqual(model);
+  });
+
+  it("C++ .hpp round-trip'i de gömülü model sayesinde KAYIPSIZ (Status Bits dahil)", () => {
+    // exportCpp header'a "// struct-memory-lab-model:{...}" satırını gömer;
+    // parseCpp bunu görüp modeli birebir geri yükler.
+    expect(parseCpp(exportCpp(model))).toEqual(model);
+    // yorumsuz export de aynı şekilde geri yüklenmeli.
+    expect(parseCpp(exportCpp(model, { comments: false }))).toEqual(model);
+  });
+
+  it("gömülü satır YOKken elle yazılmış header normal (bit'siz) parse edilir", () => {
+    const m = parseCpp("struct P { uint32_t status; bool ok; };");
+    expect(m.fields.map((f) => f.name)).toEqual(["status", "ok"]);
+    expect(m.fields[0].bitFields).toBeUndefined();
+  });
+
+  it("ham StructModel JSON'unu da (struct sarmalayıcısı olmadan) kabul eder", () => {
+    const restored = parseModelJson(JSON.stringify(model));
+    expect(restored.name).toBe("Telemetry");
+    expect(restored.fields[0].bitFields).toHaveLength(2);
+  });
+
+  it("eksik id'leri tamamlar, geçersiz JSON ve bilinmeyen tipte hata verir", () => {
+    const noId = parseModelJson('{ "name": "S", "fields": [{ "name": "a", "type": "uint8_t", "arrayLength": 1 }] }');
+    expect(noId.fields[0].id.length).toBeGreaterThan(0);
+    expect(() => parseModelJson("{ bozuk")).toThrow(/JSON/);
+    expect(() => parseModelJson('{ "name": "S", "fields": [{ "name": "a", "type": "widget", "arrayLength": 1 }] }')).toThrow(/Bilinmeyen tip/);
   });
 });

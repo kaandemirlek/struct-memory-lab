@@ -1,22 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import {
-  DndContext,
-  closestCenter,
-  PointerSensor,
-  KeyboardSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core";
-import {
-  SortableContext,
-  horizontalListSortingStrategy,
-  sortableKeyboardCoordinates,
-  useSortable,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
+import { useEffect, useRef, useState } from "react";
 import { resolveComparison, useStructStore } from "@/store/useStructStore";
 import { computeLayout } from "@/engine/layout";
 import { toSegments, type LayoutSegment } from "@/engine/segments";
@@ -31,10 +15,6 @@ import type {
 import Panel from "@/components/ui/Panel";
 
 type Mode = "edit" | "compare";
-
-// Mount tespiti (SSR/hydration güvenli): sunucuda false, istemcide true.
-// dnd-kit id'leri yalnızca mount sonrası üretilir → hydration uyuşmazlığını önler.
-const subscribeToNothing = () => () => {};
 
 // Stable color palette for fields. Daha çok renk = kimlik-bazlı sabit renklerde
 // iki bloğun aynı renge düşme olasılığı azalır (kararlılık bozulmadan).
@@ -355,155 +335,83 @@ function Band({ layout, pxPerByte }: { layout: LayoutResult; pxPerByte: number }
   );
 }
 
-// Bir alan bloğunun ortak türetmeleri (sortable ve statik sürüm paylaşır).
-function fieldBlockParts(fl: FieldLayout, onToggle: () => void) {
-  const arrayLength = Math.max(1, fl.arrayLength ?? 1);
-  const elementSize = fl.elementSize ?? fl.size / arrayLength;
-  const expandable = fl.type === "struct" && !!fl.nested;
-  const isBitField = isUnsignedInt(fl.type);
+// ---------------------------------------------------------------------------
+// 32-byte satır ızgarası (bellek haritası). Her satır TAM 32 byte gösterir:
+//   • struct 32B'tan küçükse kalan "unused" boş hücrelerle 32'ye tamamlanır,
+//   • 32B'tan büyükse alt satırlara sarar; satır sınırını geçen alanlar bölünür
+//     (devam parçası "↳" ile işaretlenir),
+//   • her blokta alan adı + tipi + boyutu yazar.
+// Salt-görsel: reorder soldaki Fields panelinde. Tıklama: struct → aç/kapat,
+// unsigned alan → Status Bits editörüne odaklan.
+// ---------------------------------------------------------------------------
+const BYTES_PER_ROW = 32;
 
-  // struct → aç/kapat · unsigned → o alanı Status Bits'te odakla + editörüne kaydır.
-  // Kaydırma HER tıklamada imperatif yapılır (odak zaten aynı alandaysa bile) →
-  // yukarı kaydırıp aynı alana tekrar tıklayınca yine oraya gider.
-  const handleClick = expandable
-    ? onToggle
-    : isBitField
-      ? () => {
-          useStructStore.getState().setFocusedBitField(fl.fieldId);
-          // Editör her zaman DOM'da (odaktan bağımsız render edilir) → senkron
-          // kaydır. Her tıklamada çalışır: aynı alana tekrar tıklayınca yine gider.
-          document
-            .getElementById(`bits-${fl.fieldId}`)
-            ?.scrollIntoView({ behavior: "smooth", block: "start" });
-        }
-      : undefined;
-
-  const title = `${fieldLabel(fl)}: ${fl.typeName ?? fl.type} — offset ${fl.offset}, ${fl.size} bytes (drag: reorder${expandable ? " · click: expand/collapse" : isBitField ? " · click: Status Bits" : ""})`;
-  return { arrayLength, elementSize, expandable, handleClick, title };
+interface GridCell {
+  kind: "field" | "padding" | "empty";
+  offset: number; // mutlak başlangıç byte'ı
+  size: number; // bu hücredeki byte (satıra göre kırpılmış)
+  cont: boolean; // önceki satırdan devam eden (bölünmüş) parça mı?
+  seg?: LayoutSegment; // yalnızca field için
 }
 
-// Bloğun iç hücreleri (dizi ise birden çok). Sortable ve statik sürüm ortak kullanır.
-function FieldCells({
-  fl,
-  pxPerByte,
-  bg,
-  arrayLength,
-  elementSize,
-  expandable,
-  open,
-}: {
-  fl: FieldLayout;
-  pxPerByte: number;
-  bg: string;
-  arrayLength: number;
-  elementSize: number;
-  expandable: boolean;
-  open: boolean;
-}) {
-  return (
-    <>
-      {Array.from({ length: arrayLength }).map((_, ai) => (
-        <div
-          key={ai}
-          style={{ width: elementSize * pxPerByte, background: bg }}
-          className="flex h-16 shrink-0 flex-col items-center justify-center overflow-hidden border-r border-black/10 text-xs text-black"
-        >
-          <span className="max-w-full truncate px-1 font-medium">
-            {fl.name}
-            {arrayLength > 1 ? `[${ai}]` : ""}
-            {expandable && ai === 0 && <span className="ml-0.5">{open ? "▾" : "▸"}</span>}
-          </span>
-          {/* Alanın veri tipi (ör. uint32_t / Vec3) — kullanıcı doğrudan görsün. */}
-          <span className="max-w-full truncate px-1 font-mono text-[10px] leading-tight opacity-80">
-            {fl.typeName ?? fl.type}
-          </span>
-          <span className="max-w-full truncate px-1 text-[9px] leading-tight opacity-60">
-            {elementSize}B
-          </span>
-        </div>
-      ))}
-    </>
+// Segmentleri 32-byte satır sınırlarında keserek satır satır hücrelere böler.
+function buildByteRows(layout: LayoutResult): GridCell[][] {
+  const displaySize = Math.max(
+    BYTES_PER_ROW,
+    Math.ceil(layout.totalSize / BYTES_PER_ROW) * BYTES_PER_ROW
   );
+
+  const source: Pick<GridCell, "kind" | "offset" | "size" | "seg">[] = toSegments(
+    layout
+  ).map((s) => ({
+    kind: s.kind,
+    offset: s.offset,
+    size: s.size,
+    seg: s.kind === "field" ? s : undefined,
+  }));
+
+  // Struct sonundan 32'nin katına kadarki alanı "unused" boş hücrelerle doldur.
+  if (displaySize > layout.totalSize) {
+    source.push({
+      kind: "empty",
+      offset: layout.totalSize,
+      size: displaySize - layout.totalSize,
+    });
+  }
+
+  const rows: GridCell[][] = [];
+  for (const s of source) {
+    let start = s.offset;
+    const end = s.offset + s.size;
+    let first = true;
+    while (start < end) {
+      const rowEnd = Math.floor(start / BYTES_PER_ROW) * BYTES_PER_ROW + BYTES_PER_ROW;
+      const cellEnd = Math.min(end, rowEnd);
+      const rowIndex = Math.floor(start / BYTES_PER_ROW);
+      (rows[rowIndex] ??= []).push({
+        kind: s.kind,
+        offset: start,
+        size: cellEnd - start,
+        cont: !first,
+        seg: s.seg,
+      });
+      start = cellEnd;
+      first = false;
+    }
+  }
+
+  return rows;
 }
 
-// Sürüklenebilir alan bloğu (yalnızca mount SONRASI render edilir → dnd-kit id'leri SSR'ı bozmaz).
-function FieldBlock({
-  fl,
+function PaddingCell({
+  size,
   pxPerByte,
-  open,
-  onToggle,
-  bg,
+  cont,
 }: {
-  fl: FieldLayout;
+  size: number;
   pxPerByte: number;
-  open: boolean;
-  onToggle: () => void;
-  bg: string;
+  cont?: boolean;
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: fl.fieldId });
-  const { arrayLength, elementSize, expandable, handleClick, title } = fieldBlockParts(fl, onToggle);
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-  };
-
-  return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      {...attributes}
-      {...listeners}
-      onClick={handleClick}
-      className="flex shrink-0 cursor-grab active:cursor-grabbing"
-      title={title}
-    >
-      <FieldCells
-        fl={fl}
-        pxPerByte={pxPerByte}
-        bg={bg}
-        arrayLength={arrayLength}
-        elementSize={elementSize}
-        expandable={expandable}
-        open={open}
-      />
-    </div>
-  );
-}
-
-// Statik alan bloğu (SSR + ilk istemci render'ı; dnd yok → hydration güvenli, aynı görünür).
-function StaticFieldBlock({
-  fl,
-  pxPerByte,
-  open,
-  onToggle,
-  bg,
-}: {
-  fl: FieldLayout;
-  pxPerByte: number;
-  open: boolean;
-  onToggle: () => void;
-  bg: string;
-}) {
-  const { arrayLength, elementSize, expandable, handleClick, title } = fieldBlockParts(fl, onToggle);
-  return (
-    <div onClick={handleClick} className="flex shrink-0 cursor-grab" title={title}>
-      <FieldCells
-        fl={fl}
-        pxPerByte={pxPerByte}
-        bg={bg}
-        arrayLength={arrayLength}
-        elementSize={elementSize}
-        expandable={expandable}
-        open={open}
-      />
-    </div>
-  );
-}
-
-function PaddingCell({ size, pxPerByte }: { size: number; pxPerByte: number }) {
   return (
     <div
       style={{
@@ -511,16 +419,73 @@ function PaddingCell({ size, pxPerByte }: { size: number; pxPerByte: number }) {
         backgroundImage:
           "repeating-linear-gradient(45deg, rgba(120,120,120,.30) 0 4px, transparent 4px 8px)",
       }}
-      className="flex h-16 shrink-0 items-center justify-center border-r border-border text-[10px] text-muted"
+      className="flex shrink-0 items-center justify-center border-r border-border text-[10px] text-muted last:border-r-0"
       title={`padding: ${size} wasted bytes`}
     >
-      {size}
+      {cont ? "" : size}
     </div>
   );
 }
 
-// Üst seviye band: alanlar dnd-kit ile sürüklenip yeniden sıralanabilir.
-function SortableBand({
+// Tek bir alan hücresi (adı + tipi + boyutu; dar bloklarda kırpar).
+function GridFieldCell({
+  cell,
+  pxPerByte,
+  bg,
+  open,
+  onToggle,
+}: {
+  cell: GridCell;
+  pxPerByte: number;
+  bg: string;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const seg = cell.seg!;
+  const expandable = seg.type === "struct" && !!seg.nested;
+  const isBitField = !!seg.type && isUnsignedInt(seg.type);
+  const displayName =
+    seg.arrayIndex === undefined ? seg.name! : `${seg.name}[${seg.arrayIndex}]`;
+  const typeText = seg.typeName ?? seg.type ?? "";
+
+  // struct → aç/kapat · unsigned → Status Bits'e odakla + editörüne kaydır (her tıklamada).
+  const handleClick = expandable
+    ? onToggle
+    : isBitField
+      ? () => {
+          useStructStore.getState().setFocusedBitField(seg.fieldId!);
+          document
+            .getElementById(`bits-${seg.fieldId}`)
+            ?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      : undefined;
+
+  const title = `${displayName}: ${typeText} — offset ${cell.offset}, ${seg.size} bytes${
+    expandable ? " (click: expand/collapse)" : isBitField ? " (click: Status Bits)" : ""
+  }`;
+
+  return (
+    <div
+      onClick={handleClick}
+      style={{ width: cell.size * pxPerByte, background: bg }}
+      className={`flex shrink-0 flex-col items-center justify-center gap-0.5 overflow-hidden border-r border-black/10 px-0.5 py-1 text-center leading-tight text-black last:border-r-0 ${
+        handleClick ? "cursor-pointer" : ""
+      }`}
+      title={title}
+    >
+      <span className="w-full truncate px-0.5 text-[11px] font-semibold">
+        {cell.cont && "↳ "}
+        {displayName}
+        {expandable && !cell.cont && <span className="ml-0.5">{open ? "▾" : "▸"}</span>}
+      </span>
+      <span className="w-full truncate px-0.5 font-mono text-[9px] opacity-80">{typeText}</span>
+      <span className="w-full truncate px-0.5 text-[8px] opacity-60">{seg.size}B</span>
+    </div>
+  );
+}
+
+// Üst seviye bellek haritası: 32-byte satırlar (salt-görsel; reorder Fields panelinde).
+function ByteGrid({
   layout,
   pxPerByte,
   colorMap,
@@ -529,83 +494,51 @@ function SortableBand({
   pxPerByte: number;
   colorMap: Record<string, string>;
 }) {
-  const model = useStructStore((s) => s.currentModel);
-  const reorderFields = useStructStore((s) => s.reorderFields);
   const [open, setOpen] = useState<Record<string, boolean>>({});
-
-  // dnd-kit SSR'da benzersiz erişilebilirlik id'leri üretir (DndDescribedBy-N) →
-  // sunucu/istemci uyuşmazlığı. Mount'tan önce statik, sonra sürüklenebilir render et.
-  const mounted = useSyncExternalStore(subscribeToNothing, () => true, () => false);
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
-  );
-
-  const handleDragEnd = (e: DragEndEvent) => {
-    const { active, over } = e;
-    if (!over || active.id === over.id) return;
-    const from = model.fields.findIndex((f) => f.id === active.id);
-    const to = model.fields.findIndex((f) => f.id === over.id);
-    if (from >= 0 && to >= 0) reorderFields(from, to);
-  };
-
-  const last = layout.fields[layout.fields.length - 1];
-  const tail = last ? layout.totalSize - (last.offset + last.size) : 0;
-
-  // Mount durumuna göre sortable ya da statik blok (ikisi de aynı prop imzası + görünüm).
-  const Block = mounted ? FieldBlock : StaticFieldBlock;
-  const band = (
-    <div className="flex h-16 w-max overflow-hidden rounded-lg border border-border">
-      {layout.fields.map((fl) => (
-        <Fragment key={fl.fieldId}>
-          {fl.paddingBefore > 0 && (
-            <PaddingCell size={fl.paddingBefore} pxPerByte={pxPerByte} />
-          )}
-          <Block
-            fl={fl}
-            pxPerByte={pxPerByte}
-            open={!!open[fl.fieldId]}
-            onToggle={() => setOpen((o) => ({ ...o, [fl.fieldId]: !o[fl.fieldId] }))}
-            bg={colorMap[fl.fieldId]}
-          />
-        </Fragment>
-      ))}
-      {tail > 0 && <PaddingCell size={tail} pxPerByte={pxPerByte} />}
-    </div>
-  );
+  const rows = buildByteRows(layout);
+  const rowWidth = BYTES_PER_ROW * pxPerByte;
 
   return (
     <div className="overflow-x-auto">
-      {mounted ? (
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-          <SortableContext
-            items={layout.fields.map((f) => f.fieldId)}
-            strategy={horizontalListSortingStrategy}
-          >
-            {band}
-          </SortableContext>
-        </DndContext>
-      ) : (
-        band
-      )}
-
-      {/* Offset cetveli (band ile aynı genişlikler). */}
-      <div className="mt-1 flex w-max">
-        {layout.fields.map((fl) => (
-          <Fragment key={fl.fieldId}>
-            {fl.paddingBefore > 0 && (
-              <div style={{ width: fl.paddingBefore * pxPerByte }} className="shrink-0" />
-            )}
-            <div
-              style={{ width: fl.size * pxPerByte }}
-              className="shrink-0 text-[10px] text-muted"
-            >
-              {fl.offset}
+      <div className="w-max space-y-1">
+        {rows.map((cells, ri) => (
+          <div key={ri} className="flex items-stretch gap-2">
+            {/* Sol oluk: satırın başlangıç offset'i (0, 32, 64, ...). */}
+            <div className="w-8 shrink-0 self-center text-right font-mono text-[10px] tabular-nums text-muted">
+              {ri * BYTES_PER_ROW}
             </div>
-          </Fragment>
+            <div
+              className="flex h-16 overflow-hidden rounded-lg border border-border"
+              style={{ width: rowWidth }}
+            >
+              {cells.map((c, ci) =>
+                c.kind === "field" ? (
+                  <GridFieldCell
+                    key={ci}
+                    cell={c}
+                    pxPerByte={pxPerByte}
+                    bg={colorMap[c.seg!.fieldId!]}
+                    open={!!open[c.seg!.fieldId!]}
+                    onToggle={() =>
+                      setOpen((o) => ({ ...o, [c.seg!.fieldId!]: !o[c.seg!.fieldId!] }))
+                    }
+                  />
+                ) : c.kind === "padding" ? (
+                  <PaddingCell key={ci} size={c.size} pxPerByte={pxPerByte} cont={c.cont} />
+                ) : (
+                  <div
+                    key={ci}
+                    style={{ width: c.size * pxPerByte }}
+                    className="flex shrink-0 items-center justify-center border-r border-border/40 text-[9px] text-muted/40 last:border-r-0"
+                    title={`unused: ${c.size} byte (satırı 32'ye tamamlamak için)`}
+                  >
+                    ·
+                  </div>
+                )
+              )}
+            </div>
+          </div>
         ))}
-        <span className="pl-0.5 text-[10px] text-muted">{layout.totalSize}</span>
       </div>
 
       {/* Açılan nested struct'ların iç yerleşimi. */}
@@ -740,10 +673,10 @@ export default function LayoutVisualizer({ mode = "edit" }: { mode?: Mode }) {
   // ---- Edit mode (interactive map + read-only snapshot preview) ----
   const layout = computeLayout(editModelToShow);
   const hasNested = layout.fields.some((f) => f.type === "struct" && f.nested);
-  const autoPxPerByte =
-    layout.totalSize > 0 && containerW > 0
-      ? Math.max(4, Math.min(48, Math.floor(containerW / layout.totalSize)))
-      : 28;
+  // 32-byte ızgara: satır TAM ekran genişliğine sığar (sol oluk + boşluk pay edilir).
+  // Çok dar ekranda min genişlikte tutulur; taşarsa yatay kaydırma devreye girer.
+  const gridPxPerByte =
+    containerW > 0 ? Math.max(14, Math.floor((containerW - 44) / BYTES_PER_ROW)) : 18;
   const colorMap = assignFieldColors(layout.fields);
   const overLimit =
     typeof byteLimit === "number" && byteLimit > 0 && layout.totalSize > byteLimit;
@@ -805,19 +738,13 @@ export default function LayoutVisualizer({ mode = "edit" }: { mode?: Mode }) {
           )}
 
           <div ref={containerRef}>
-            {previewVersion ? (
-              <Band layout={layout} pxPerByte={autoPxPerByte} />
-            ) : (
-              <SortableBand layout={layout} pxPerByte={autoPxPerByte} colorMap={colorMap} />
-            )}
+            <ByteGrid layout={layout} pxPerByte={gridPxPerByte} colorMap={colorMap} />
           </div>
 
           <p className="mt-2 text-[11px] text-muted">
-            {previewVersion
-              ? hasNested
-                ? "Read-only preview · click a struct to expand its layout."
-                : "Read-only preview."
-              : `Tip: drag fields to reorder${hasNested ? " · click a struct to expand its layout" : ""}.`}
+            {previewVersion ? "Read-only preview · " : ""}
+            Each row is 32 bytes · reorder in the Fields panel
+            {hasNested ? " · click a struct to expand its layout" : ""}.
           </p>
 
           {/* Legend (alan başına bir giriş). */}

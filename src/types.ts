@@ -24,11 +24,30 @@ export type CppPrimitive =
   | "uint32_t"
   | "int64_t"
   | "uint64_t"
+  // long / unsigned long: BOYUTU platforma bağlı (LP64: 8, LLP64/ILP32: 4).
+  // size_t gibi "ertelenmiş" tiptirler — parse'ta sabitlenmez, layout anında
+  // getTypeInfo(platform)'dan çözülür. Sabit genişlikli değildirler.
+  | "long"
+  | "unsigned long"
   | "size_t"
   | "float"
   | "double";
 
-/** Her primitive tipin byte cinsinden boyutu ve hizalaması (alignment). */
+// ---------------------------------------------------------------------------
+// Platform / ABI ön ayarları. Sabit genişlikli tiplerin boyutu her yerde aynı;
+// platformlar arasında değişenler: long / unsigned long / size_t boyutu ve
+// 8-byte'lık tiplerin hizalaması (i386 SysV'de 4). Bu "ertelenmiş" tipler
+// modelde OLDUĞU GİBİ tutulur; boyut yalnızca layout anında çözülür — böylece
+// platformu değiştirmek re-import gerektirmeden yerleşimi günceller.
+// Tablolar engine/platform.ts'te; burada yalnızca tip sözleşmesi var.
+// ---------------------------------------------------------------------------
+export type Platform = "linux64" | "win64" | "x86-32";
+
+export const DEFAULT_PLATFORM: Platform = "linux64";
+
+/** Her primitive tipin byte cinsinden boyutu ve hizalaması (alignment).
+ *  NOT: Bu tablo VARSAYILAN platform (linux64 / LP64) içindir; platforma göre
+ *  tablo için engine/platform.ts'teki getTypeInfo(platform)'u kullanın. */
 export const TYPE_INFO: Record<CppPrimitive, { size: number; align: number }> = {
   bool: { size: 1, align: 1 },
   char: { size: 1, align: 1 },
@@ -40,7 +59,9 @@ export const TYPE_INFO: Record<CppPrimitive, { size: number; align: number }> = 
   uint32_t: { size: 4, align: 4 },
   int64_t: { size: 8, align: 8 },
   uint64_t: { size: 8, align: 8 },
-  // size_t: platforma bağlı; 64-bit modelinde 8 byte (parser de bunu varsayar).
+  // long / size_t: platforma bağlı. Bu tablo VARSAYILAN (LP64): long 8, size_t 8.
+  long: { size: 8, align: 8 },
+  "unsigned long": { size: 8, align: 8 },
   size_t: { size: 8, align: 8 },
   float: { size: 4, align: 4 },
   double: { size: 8, align: 8 },
@@ -101,6 +122,11 @@ export interface BitMeaning {
 export interface StructModel {
   name: string;
   fields: Field[];
+  /**
+   * #pragma pack(N) — alan hizalamaları min(doğal, N) ile sınırlanır.
+   * undefined = paketlenmemiş (doğal hizalama). Geçerli değerler: 1,2,4,8,16.
+   */
+  pack?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -181,11 +207,13 @@ export interface Warning {
 // Gerçek implementasyonlar engine/ altındaki dosyalarda.
 // ============================================================================
 
-/** PERSON A — C++ metnini StructModel'e çevirir. */
+/** PERSON A — C++ metnini StructModel'e çevirir. Platformdan BAĞIMSIZDIR:
+ *  long/unsigned long/size_t olduğu gibi saklanır, boyutları layout anında çözülür. */
 export type ParseCpp = (code: string) => StructModel;
 
-/** PERSON A — bellek yerleşimini (offset/padding/size) hesaplar. */
-export type ComputeLayout = (model: StructModel) => LayoutResult;
+/** PERSON A — bellek yerleşimini (offset/padding/size) hesaplar.
+ *  platform, size_t boyutunu ve 8-byte tiplerin hizalamasını etkiler. */
+export type ComputeLayout = (model: StructModel, platform?: Platform) => LayoutResult;
 
 /** PERSON B — iki versiyonu karşılaştırır. */
 export type DiffVersions = (a: StructModel, b: StructModel) => DiffEntry[];

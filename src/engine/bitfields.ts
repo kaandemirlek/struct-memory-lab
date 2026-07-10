@@ -61,7 +61,7 @@ export function bitWarningsForField(field: Field): Warning[] {
     return [
       {
         severity: "warning",
-        message: `"${field.name}": bit alanları yalnızca unsigned integer tiplerde anlamlı (şu an ${field.type}).`,
+        message: `"${field.name}": bit fields are only meaningful on unsigned integer types (currently ${field.type}).`,
       },
     ];
   }
@@ -73,23 +73,23 @@ export function bitWarningsForField(field: Field): Warning[] {
   // Sınır kontrolleri (her bit alanı için).
   for (const b of bits) {
     if (b.width < 1) {
-      out.push({ severity: "danger", message: `"${b.name}": bit genişliği en az 1 olmalı.` });
+      out.push({ severity: "danger", message: `"${b.name}": bit width must be at least 1.` });
     }
     if (b.wordIndex < 0 || b.wordIndex >= words) {
       out.push({
         severity: "danger",
-        message: `Out of bounds: "${b.name}" word ${b.wordIndex} kullanıyor ama yalnızca 0..${words - 1} var.`,
+        message: `Out of bounds: "${b.name}" uses word ${b.wordIndex} but only words 0..${words - 1} exist.`,
       });
     }
     if (b.startBit < 0 || b.startBit >= bpw) {
       out.push({
         severity: "danger",
-        message: `Out of bounds: "${b.name}" bit ${b.startBit}, ama word ${bpw} bit genişliğinde.`,
+        message: `Out of bounds: "${b.name}" starts at bit ${b.startBit} but the word is ${bpw} bits wide.`,
       });
     } else if (b.width >= 1 && b.startBit + b.width > bpw) {
       out.push({
         severity: "danger",
-        message: `Word boundary crossing: "${b.name}" bit ${b.startBit}..${b.startBit + b.width - 1}, word ${bpw} bit.`,
+        message: `Word boundary crossing: "${b.name}" spans bits ${b.startBit}..${b.startBit + b.width - 1} but the word is ${bpw} bits.`,
       });
     }
   }
@@ -110,7 +110,7 @@ export function bitWarningsForField(field: Field): Warning[] {
       if (m.value < min || m.value > max) {
         out.push({
           severity: "warning",
-          message: `"${b.name}": değer ${m.value} (${m.label}) ${b.width}-bit ${kind} alanına sığmıyor (izinli ${min}..${max}).`,
+          message: `"${b.name}": value ${m.value} (${m.label}) does not fit a ${b.width}-bit ${kind} field (allowed ${min}..${max}).`,
         });
       }
     }
@@ -127,7 +127,7 @@ export function bitWarningsForField(field: Field): Warning[] {
       if (a.startBit < cEnd && c.startBit < aEnd) {
         out.push({
           severity: "danger",
-          message: `Overlap: "${a.name}" ve "${c.name}" word ${a.wordIndex}'de aynı bitleri kullanıyor.`,
+          message: `Overlap: "${a.name}" and "${c.name}" use the same bits in word ${a.wordIndex}.`,
         });
       }
     }

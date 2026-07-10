@@ -10,6 +10,7 @@
 // ============================================================================
 
 import type { DiffEntry, DiffKind, DiffVersions, Field, StructModel } from "@/types";
+import { alignFieldIds } from "@/engine/identity";
 
 /** Alanın tip imzası, dizi sözdizimi dahil:  "uint8_t[16]" / "uint32_t" / "Vec3" (nested). */
 function typeSignature(field: Field): string {
@@ -19,6 +20,9 @@ function typeSignature(field: Field): string {
 }
 
 export const diffVersions: DiffVersions = (a, b) => {
+  // İki ayrı parse'tan gelen modellerde id'ler kesişmez (her parse taze id
+  // üretir); isim fallback'iyle hizala ki alanlar "removed + added" görünmesin.
+  a = alignFieldIds(a, b);
   const entries: DiffEntry[] = [];
   const byIdA = new Map(a.fields.map((f) => [f.id, f]));
   const byIdB = new Map(b.fields.map((f) => [f.id, f]));

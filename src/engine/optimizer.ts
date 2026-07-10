@@ -13,24 +13,30 @@
 //     (Optimize panelinde "şu kadar byte kazanırsın" göstermek için).
 // ============================================================================
 
-import type { ComputeLayout, Field, StructModel } from "@/types";
-import { TYPE_INFO } from "@/types";
+import type { ComputeLayout, Field, Platform, StructModel } from "@/types";
+import { DEFAULT_PLATFORM } from "@/types";
+import { getTypeInfo } from "@/engine/platform";
 import { computeLayout } from "@/engine/layout";
 
-// Bir alanın hizalaması: nested struct ise kendi layout'undan, değilse TYPE_INFO'dan.
-function alignOf(f: Field): number {
-  if (f.type === "struct" && f.nested) return computeLayout(f.nested).alignment;
-  if (f.type !== "struct") return TYPE_INFO[f.type].align;
-  return 1;
+// Bir alanın hizalaması: nested struct ise kendi layout'undan, değilse tip
+// tablosundan (platforma göre); #pragma pack varsa onunla sınırlanır.
+function alignOf(f: Field, platform: Platform, pack?: number): number {
+  let align = 1;
+  if (f.type === "struct" && f.nested) align = computeLayout(f.nested, platform).alignment;
+  else if (f.type !== "struct") align = getTypeInfo(platform)[f.type].align;
+  return pack ? Math.min(align, pack) : align;
 }
 
 /** Alanları hizalamaya göre büyükten küçüğe dizer (eşitlikte özgün sıra korunur). */
-export function optimizeStruct(model: StructModel): StructModel {
+export function optimizeStruct(
+  model: StructModel,
+  platform: Platform = DEFAULT_PLATFORM
+): StructModel {
   const fields = model.fields
     .map((f, i) => ({ f, i })) // özgün index'i sakla (stabil sıralama için)
     .sort((a, b) => {
-      const da = alignOf(a.f);
-      const db = alignOf(b.f);
+      const da = alignOf(a.f, platform, model.pack);
+      const db = alignOf(b.f, platform, model.pack);
       if (da !== db) return db - da; // hizalama büyükten küçüğe
       return a.i - b.i; // eşitlikte özgün sırayı koru (stabil)
     })
@@ -53,11 +59,12 @@ export interface OptimizationResult {
 /** optimizeStruct sonucunu boyut bilgisiyle sarar. layoutFn test için enjekte edilebilir. */
 export function optimizeLayout(
   model: StructModel,
-  layoutFn: ComputeLayout = computeLayout
+  layoutFn: ComputeLayout = computeLayout,
+  platform: Platform = DEFAULT_PLATFORM
 ): OptimizationResult {
-  const optimizedModel = optimizeStruct(model);
-  const currentSize = layoutFn(model).totalSize;
-  const optimizedSize = layoutFn(optimizedModel).totalSize;
+  const optimizedModel = optimizeStruct(model, platform);
+  const currentSize = layoutFn(model, platform).totalSize;
+  const optimizedSize = layoutFn(optimizedModel, platform).totalSize;
 
   return {
     optimizedModel,

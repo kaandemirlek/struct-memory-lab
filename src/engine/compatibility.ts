@@ -25,8 +25,8 @@ import type {
   Warning,
   WarningSeverity,
 } from "@/types";
-import { TYPE_INFO } from "@/types";
 import { computeLayout } from "@/engine/layout";
+import { alignFieldIds } from "@/engine/identity";
 
 type Category = "signed" | "unsigned" | "float" | "bool" | "char" | "struct";
 
@@ -80,22 +80,14 @@ function typeSig(field: Field): string {
   return field.arrayLength > 1 ? `${base}[${field.arrayLength}]` : base;
 }
 
-/** Alanın toplam byte boyutu (dizi + nested dahil). */
-function byteSize(field: Field): number {
-  const elem =
-    field.type === "struct"
-      ? field.nested
-        ? computeLayout(field.nested).totalSize
-        : 0
-      : TYPE_INFO[field.type].size;
-  return elem * Math.max(1, field.arrayLength);
-}
-
 export const analyzeCompatibility: AnalyzeCompatibility = (
   a,
   b,
   layoutFn = computeLayout
 ) => {
+  // Ayrı parse'lardan gelen modellerde id'ler kesişmez; isim fallback'iyle
+  // hizala ki ortak alanlar "silindi" sanılmasın (bkz. engine/identity.ts).
+  a = alignFieldIds(a, b);
   const warnings: Warning[] = [];
   const before = layoutFn(a);
   const after = layoutFn(b);
@@ -125,6 +117,8 @@ export const analyzeCompatibility: AnalyzeCompatibility = (
   }
 
   // Alan-bazlı tip/boyut değişimleri (truncation / reinterpret / signedness / widening).
+  // Boyutlar layoutFn çıktısından okunur — böylece platform/pack ne olursa olsun
+  // gerçek yerleşimle tutarlıdır (TYPE_INFO'ya ayrıca bakmaya gerek kalmaz).
   const aFieldsById = new Map(a.fields.map((f) => [f.id, f]));
   const bFieldsById = new Map(b.fields.map((f) => [f.id, f]));
   for (const [id, fa] of aFieldsById) {
@@ -134,8 +128,8 @@ export const analyzeCompatibility: AnalyzeCompatibility = (
 
     const sigA = typeSig(fa);
     const sigB = typeSig(fb);
-    const sizeA = byteSize(fa);
-    const sizeB = byteSize(fb);
+    const sizeA = beforeById.get(id)?.size ?? 0;
+    const sizeB = afterById.get(id)?.size ?? 0;
 
     if (sizeB < sizeA) {
       warnings.push({
@@ -283,6 +277,9 @@ export function analyzeFieldImpacts(
   b: Parameters<AnalyzeCompatibility>[1],
   layoutFn = computeLayout
 ): FieldImpact[] {
+  // Rozetler b'nin (after) id'leriyle anahtarlanır; hizalama base tarafında
+  // yapıldığı için b'nin id'leri değişmez (bkz. engine/identity.ts).
+  a = alignFieldIds(a, b);
   const before = layoutFn(a);
   const after = layoutFn(b);
   const beforeById = new Map(before.fields.map((f) => [f.fieldId, f]));

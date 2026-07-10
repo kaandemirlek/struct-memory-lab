@@ -10,15 +10,17 @@ import { computeLayout } from "@/engine/layout";
 import { diffVersions } from "@/engine/diff";
 import { generateCompatibilityReport } from "@/engine/compatibility";
 import type { ResolvedComparison } from "@/store/useStructStore";
-import type { StructModel, Version } from "@/types";
+import type { Platform, StructModel, Version } from "@/types";
+import { DEFAULT_PLATFORM } from "@/types";
 import type { ContextField, StructContext } from "./types";
 
 export function buildStructContext(
   model: StructModel,
   versions: Version[],
-  cmp: ResolvedComparison
+  cmp: ResolvedComparison,
+  platform: Platform = DEFAULT_PLATFORM
 ): StructContext {
-  const layout = computeLayout(model);
+  const layout = computeLayout(model, platform);
   const arrayLenById = new Map(model.fields.map((f) => [f.id, f.arrayLength]));
 
   const fields: ContextField[] = layout.fields.map((fl) => ({
@@ -32,7 +34,9 @@ export function buildStructContext(
 
   let comparison: StructContext["comparison"] = null;
   if (cmp.fromModel && cmp.toModel && cmp.fromValue !== cmp.toValue) {
-    const report = generateCompatibilityReport(cmp.fromModel, cmp.toModel);
+    const report = generateCompatibilityReport(cmp.fromModel, cmp.toModel, (m) =>
+      computeLayout(m, platform)
+    );
     comparison = {
       fromLabel: cmp.fromLabel,
       toLabel: cmp.toLabel,

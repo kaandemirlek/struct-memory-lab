@@ -14,7 +14,8 @@
 // ============================================================================
 
 import type { ComputeLayout, FieldLayout, LayoutResult } from "@/types";
-import { TYPE_INFO } from "@/types"; //primitives'in boyut ve hizalama bilgisi -> types'ta tanımlamıştık
+import { DEFAULT_PLATFORM } from "@/types";
+import { getTypeInfo } from "@/engine/platform"; // platforma göre boyut/hizalama tablosu
 
 /** alignUp
  * value'yu align'ın bir sonraki katına yukarı yuvarlar.
@@ -27,13 +28,16 @@ export const alignUp = (value: number, align: number): number =>
 
 
 // computeLayout, StructModel'deki alanların bellek yerleşimini hesaplar ve her alanın offset'ini, padding miktarını, toplam boyutu ve hizalamayı döndürür.
-export const computeLayout: ComputeLayout = (model) => { //types'ta tanımladığımız computeLayout fonksiyonunu burada implement ettik
+// platform: size_t boyutu + 8-byte tiplerin hizalaması (varsayılan linux64).
+// model.pack (#pragma pack): alan hizalamaları min(doğal, pack) ile sınırlanır.
+export const computeLayout: ComputeLayout = (model, platform = DEFAULT_PLATFORM) => {
+  const typeInfo = getTypeInfo(platform);
   const fields: FieldLayout[] = [];
   let offset = 0; // sıfırdan başlar, field yerleştikçe offset ilerler
   let maxAlign = 1; // struct'ın hizalaması = en büyük alan hizalaması, başlangıçta 1 (bool) ile başlar
 
   for (const f of model.fields) {
-    // Bir alanın eleman boyutu/hizalaması: primitive ise TYPE_INFO'dan,
+    // Bir alanın eleman boyutu/hizalaması: primitive ise typeInfo'dan,
     // nested struct ise ÖZYİNELEMELİ olarak kendi layout'undan gelir.
     let elemSize: number;
     let align: number;
@@ -41,12 +45,12 @@ export const computeLayout: ComputeLayout = (model) => { //types'ta tanımladı�
     let nested: LayoutResult | undefined;
 
     if (f.type === "struct" && f.nested) {
-      nested = computeLayout(f.nested); // <-- özyineleme
+      nested = computeLayout(f.nested, platform); // <-- özyineleme (kendi pack'i içeride uygulanır)
       elemSize = nested.totalSize; // tail padding dahil → struct dizilerinin hizası korunur
       align = nested.alignment; // struct'ın hizalaması = en büyük üyesininki
       typeName = f.nested.name || "struct";
     } else if (f.type !== "struct") {
-      ({ size: elemSize, align } = TYPE_INFO[f.type]);
+      ({ size: elemSize, align } = typeInfo[f.type]);
       typeName = f.type;
     } else {
       // type "struct" ama nested yok (bozuk durum) → güvenli varsayım
@@ -54,6 +58,9 @@ export const computeLayout: ComputeLayout = (model) => { //types'ta tanımladı�
       align = 1;
       typeName = "struct";
     }
+
+    // #pragma pack(N): hizalama en fazla N olabilir (min(doğal, N)).
+    if (model.pack) align = Math.min(align, model.pack);
 
     // Bir dizinin hizalaması, elemanının hizalamasıyla aynıdır.
     const size = elemSize * Math.max(1, f.arrayLength); //arrayfield ise size = elemSize * arrayLength, değilse size = elemSize

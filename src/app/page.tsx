@@ -1,5 +1,6 @@
 import StoreHydration from "@/components/StoreHydration";
 import HistoryControls from "@/components/HistoryControls";
+import PlatformSelect from "@/components/PlatformSelect";
 import ThemeToggle from "@/components/ThemeToggle";
 import ImportBox from "@/components/ImportBox";
 import WorkspaceShell from "@/components/WorkspaceShell";
@@ -23,6 +24,8 @@ export default function Home() {
             </p>
           </div>
           <div className="ml-auto flex items-center gap-2">
+            <PlatformSelect />
+            <div className="mx-1 h-5 w-px bg-border" aria-hidden />
             <ThemeToggle />
             <HistoryControls />
             <div className="mx-1 h-5 w-px bg-border" aria-hidden />

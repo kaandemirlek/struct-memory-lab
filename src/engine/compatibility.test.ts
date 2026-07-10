@@ -154,6 +154,23 @@ describe("analyzeCompatibility", () => {
       message: "Total padding changed from 3 to 7 bytes.",
     });
   });
+
+  // İki ayrı parse (örn. CLI'da iki .hpp) aynı alanlara KESİŞMEYEN id'ler verir;
+  // isim fallback'i sayesinde ortak alanlar "silindi" sanılmamalı.
+  it("does not flag unchanged fields as removed across two separate parses", () => {
+    const a = struct([f("a1", "id", "uint32_t"), f("a2", "alive", "bool")]);
+    const b = struct([
+      f("b1", "id", "uint32_t"),
+      f("b2", "alive", "bool"),
+      f("b3", "score", "int64_t"), // sona eklendi — mevcut offset'ler değişmez
+    ]);
+    const warnings = analyzeCompatibility(a, b, packLayout);
+    expect(warnings.filter((w) => w.severity === "danger")).toEqual([]);
+    expect(warnings).toContainEqual({
+      severity: "warning",
+      message: "Struct size changed from 5 to 13 bytes.",
+    });
+  });
 });
 
 describe("generateCompatibilityReport", () => {

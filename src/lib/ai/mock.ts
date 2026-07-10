@@ -86,14 +86,26 @@ const OFFLINE_HINT =
 export function mockChatReply(context: StructContext, lastUserMessage: string): string {
   const q = lastUserMessage.toLowerCase();
 
-  const has = (...words: string[]) => words.some((w) => q.includes(w));
+  // Tam kelime/deyim eşleşmesi (\b...\b) — düz includes() "hi"yi "which"in,
+  // "pad"i "padding"in içinde bulup yanlış intent'e düşüyordu. Kelime kökleri
+  // yerine türevler listeye açıkça yazılır ("align", "aligned", "alignment").
+  const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const has = (...terms: string[]) =>
+    terms.some((t) => new RegExp(`\\b${escapeRe(t)}\\b`).test(q));
 
-  if (has("padding", "pad ", "padded", "gap", "wasted")) return describePadding(context);
-  if (has("align")) return describeAlignment(context);
-  if (has("size", "sizeof", "how big", "how large", "bytes", "total")) return describeSize(context);
-  if (has("what changed", "changed", "diff", "difference", "impact", "break", "compat")) return describeChanges(context);
-  if (has("version", "snapshot", "history")) return describeVersions(context);
-  if (has("field", "how many", "member", "list")) return describeFields(context);
+  if (has("padding", "pad", "padded", "gap", "gaps", "wasted")) return describePadding(context);
+  if (has("align", "aligned", "alignment")) return describeAlignment(context);
+  if (has("size", "sizeof", "how big", "how large", "byte", "bytes", "total")) return describeSize(context);
+  if (
+    has(
+      "what changed", "changed", "change", "changes", "diff", "difference",
+      "differences", "impact", "break", "breaks", "breaking",
+      "compat", "compatible", "compatibility", "incompatible"
+    )
+  )
+    return describeChanges(context);
+  if (has("version", "versions", "snapshot", "snapshots", "history")) return describeVersions(context);
+  if (has("field", "fields", "how many", "member", "members", "list")) return describeFields(context);
   if (has("hi", "hello", "hey", "help", "what can you")) {
     return `Hi! ${describeSize(context)} ${OFFLINE_HINT}`;
   }

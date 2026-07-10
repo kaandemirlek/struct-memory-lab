@@ -13,6 +13,7 @@ type Format = "cpp" | "json";
 
 export default function ExportBox() {
   const model = useStructStore((s) => s.currentModel);
+  const platform = useStructStore((s) => s.platform);
   const [open, setOpen] = useState(false);
   const [format, setFormat] = useState<Format>("cpp");
   const [comments, setComments] = useState(true);
@@ -22,7 +23,9 @@ export default function ExportBox() {
   const hasErrors = issues.length > 0;
 
   const isCpp = format === "cpp";
-  const code = isCpp ? exportCpp(model, { comments }) : exportModelJson(model);
+  const code = isCpp
+    ? exportCpp(model, { comments, platform })
+    : exportModelJson(model, platform);
   const fileName = `${model.name.trim() || "Struct"}.${isCpp ? "hpp" : "json"}`;
   // C++ requires a valid struct; JSON is just the model, so it's always exportable.
   const blocked = isCpp && hasErrors;

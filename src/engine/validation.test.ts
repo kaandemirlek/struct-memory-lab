@@ -58,4 +58,52 @@ describe("validateStruct", () => {
       message: 'Field "buf" has an invalid array length.',
     });
   });
+
+  // --- nested struct'lara özyinelemeli iner ---
+
+  const nested = (id: string, name: string, inner: StructModel): Field => ({
+    id,
+    name,
+    type: "struct",
+    arrayLength: 1,
+    nested: inner,
+  });
+
+  it("flags issues inside a nested struct, with scope context", () => {
+    const model = struct("Player", [
+      f("1", "id", "uint32_t"),
+      nested("2", "position", struct("Vec3", [f("3", "my field", "float")])),
+    ]);
+    expect(validateStruct(model)).toContainEqual({
+      fieldId: "3",
+      message: 'Field name "my field" is not a valid C++ identifier. (in position)',
+    });
+  });
+
+  it("flags duplicate names inside a nested struct", () => {
+    const model = struct("Player", [
+      nested("1", "position", struct("Vec3", [f("2", "x", "float"), f("3", "x", "float")])),
+    ]);
+    expect(validateStruct(model)).toContainEqual({
+      message: 'Duplicate field name "x". (in position)',
+    });
+  });
+
+  it("does not treat same names in different scopes as duplicates", () => {
+    const model = struct("Player", [
+      f("1", "x", "uint32_t"),
+      nested("2", "position", struct("Vec3", [f("3", "x", "float")])),
+    ]);
+    expect(validateStruct(model)).toEqual([]);
+  });
+
+  it("flags an invalid nested struct name, two levels deep", () => {
+    const inner = struct("3D", [f("4", "x", "float")]); // "3D" geçersiz identifier
+    const model = struct("Player", [
+      nested("1", "a", struct("Mid", [nested("2", "b", inner)])),
+    ]);
+    expect(validateStruct(model)).toContainEqual({
+      message: 'Struct name "3D" is not a valid C++ identifier. (in a.b)',
+    });
+  });
 });

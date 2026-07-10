@@ -10,8 +10,9 @@ import MiniLayoutStrip from "@/components/MiniLayoutStrip";
 export default function OptimizerPanel() {
   const model = useStructStore((s) => s.currentModel);
   const setModel = useStructStore((s) => s.setModel);
+  const platform = useStructStore((s) => s.platform);
 
-  const result = optimizeLayout(model);
+  const result = optimizeLayout(model, computeLayout, platform);
 
   if (model.fields.length < 2 || result.bytesSaved <= 0) return null;
 
@@ -20,8 +21,8 @@ export default function OptimizerPanel() {
   const colorIndexFor = (fieldId?: string) =>
     fieldId !== undefined ? colorById.get(fieldId) ?? 0 : 0;
 
-  const currentLayout = computeLayout(model);
-  const optimizedLayout = computeLayout(result.optimizedModel);
+  const currentLayout = computeLayout(model, platform);
+  const optimizedLayout = computeLayout(result.optimizedModel, platform);
   const maxBytes = Math.max(currentLayout.totalSize, optimizedLayout.totalSize);
 
   return (

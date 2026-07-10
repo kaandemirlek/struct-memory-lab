@@ -65,6 +65,63 @@ describe("useStructStore — Person A actions", () => {
   });
 });
 
+describe("useStructStore — nested struct editing", () => {
+  const nestedModel = (): StructModel => ({
+    name: "Player",
+    fields: [
+      { id: "f1", name: "id", type: "uint32_t", arrayLength: 1 },
+      {
+        id: "f2",
+        name: "position",
+        type: "struct",
+        arrayLength: 1,
+        nested: {
+          name: "Vec3",
+          fields: [
+            { id: "nx", name: "x", type: "float", arrayLength: 1 },
+            { id: "ny", name: "y", type: "float", arrayLength: 1 },
+          ],
+        },
+      },
+    ],
+  });
+
+  beforeEach(() => {
+    useStructStore.setState({ currentModel: nestedModel(), past: [], future: [] });
+  });
+
+  const nestedFields = () => get().currentModel.fields[1].nested!.fields;
+
+  it("updateField reaches fields inside a nested struct", () => {
+    get().updateField("nx", { name: "renamedX", type: "double" });
+    expect(nestedFields()[0]).toMatchObject({ id: "nx", name: "renamedX", type: "double" });
+  });
+
+  it("removeField deletes a nested field without touching siblings", () => {
+    get().removeField("ny");
+    expect(nestedFields().map((f) => f.id)).toEqual(["nx"]);
+    expect(get().currentModel.fields).toHaveLength(2); // üst seviye dokunulmadı
+  });
+
+  it("addField(parentId) appends into the nested struct", () => {
+    get().addField("f2");
+    expect(nestedFields()).toHaveLength(3);
+    expect(nestedFields()[2].name).toBe("newField");
+  });
+
+  it("addField without a parent still appends at the top level", () => {
+    get().addField();
+    expect(get().currentModel.fields).toHaveLength(3);
+  });
+
+  it("nested edits participate in undo", () => {
+    get().updateField("nx", { name: "changed" });
+    expect(nestedFields()[0].name).toBe("changed");
+    get().undo();
+    expect(nestedFields()[0].name).toBe("x");
+  });
+});
+
 describe("useStructStore — versioning actions", () => {
   const baseModel = (): StructModel => ({
     name: "Player",

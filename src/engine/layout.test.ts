@@ -27,6 +27,82 @@ describe("alignUp", () => {
   });
 });
 
+describe("computeLayout — platform & pack", () => {
+  it("long: üç platformda üç farklı sizeof (long + size_t birlikte)", () => {
+    // char + long + size_t → tam olarak Linux/Windows/32-bit ayrımını gösterir.
+    const m = struct(field("char", "tag"), field("long", "id"), field("size_t", "count"));
+    expect(computeLayout(m, "linux64").totalSize).toBe(24); // long 8, size_t 8
+    expect(computeLayout(m, "win64").totalSize).toBe(16); // long 4, size_t 8
+    expect(computeLayout(m, "x86-32").totalSize).toBe(12); // long 4, size_t 4
+  });
+
+  it("long align'ı da platforma göre gelir (LP64: 8, LLP64/ILP32: 4)", () => {
+    const m = struct(field("char", "a"), field("long", "b"));
+    expect(computeLayout(m, "linux64").fields[1].offset).toBe(8); // align 8 → pad 7
+    expect(computeLayout(m, "win64").fields[1].offset).toBe(4); // align 4 → pad 3
+  });
+
+  it("x86-32: 8-byte tipler 4'e hizalanır, size_t 4 byte olur", () => {
+    const m = struct(field("bool", "a"), field("double", "b"));
+    const r64 = computeLayout(m); // linux64 (varsayılan)
+    const r32 = computeLayout(m, "x86-32");
+    expect(r64.fields[1].offset).toBe(8);
+    expect(r64.totalSize).toBe(16);
+    expect(r32.fields[1].offset).toBe(4); // double align 4 (i386 SysV)
+    expect(r32.totalSize).toBe(12);
+
+    const s = struct(field("size_t", "n"));
+    expect(computeLayout(s).totalSize).toBe(8);
+    expect(computeLayout(s, "x86-32").totalSize).toBe(4);
+  });
+
+  it("win64 yerleşimi linux64 ile birebir aynı (fark parser aliasında)", () => {
+    const m = struct(field("uint32_t", "a"), field("double", "b"), field("size_t", "c"));
+    expect(computeLayout(m, "win64")).toEqual(computeLayout(m, "linux64"));
+  });
+
+  it("pack(1) tüm padding'i kaldırır", () => {
+    const m: StructModel = {
+      ...struct(field("bool", "a"), field("uint32_t", "b"), field("double", "c")),
+      pack: 1,
+    };
+    const r = computeLayout(m);
+    expect(r.fields.map((f) => f.offset)).toEqual([0, 1, 5]);
+    expect(r.totalSize).toBe(13);
+    expect(r.alignment).toBe(1);
+    expect(r.totalPadding).toBe(0);
+  });
+
+  it("pack(2) hizalamayı 2 ile sınırlar (min(doğal, pack))", () => {
+    const m: StructModel = {
+      ...struct(field("bool", "a"), field("uint32_t", "b"), field("double", "c")),
+      pack: 2,
+    };
+    const r = computeLayout(m);
+    expect(r.fields.map((f) => f.offset)).toEqual([0, 2, 6]);
+    expect(r.totalSize).toBe(14); // 2'nin katına yuvarlanır
+    expect(r.alignment).toBe(2);
+  });
+
+  it("nested struct kendi pack'ini korur", () => {
+    const inner: StructModel = {
+      name: "Inner",
+      fields: [field("bool", "a"), field("uint32_t", "b")],
+      pack: 1,
+    };
+    const outer: StructModel = {
+      name: "Outer",
+      fields: [
+        field("bool", "x"),
+        { id: `id${Date.now()}`, name: "in", type: "struct", arrayLength: 1, nested: inner },
+      ],
+    };
+    const r = computeLayout(outer);
+    expect(r.fields[1].size).toBe(5); // paketli iç struct: 1+4, tail pad yok
+    expect(r.fields[1].offset).toBe(1); // iç alignment 1 → hemen bool'dan sonra
+  });
+});
+
 describe("computeLayout", () => {
   it("Player: padding ve tail padding'i doğru hesaplar", () => {
     const m = struct(

@@ -7,7 +7,10 @@ export default defineConfig({
     alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },
   },
   test: {
+    // Motor testleri düz "node" ortamında koşar; React bileşen testleri (.test.tsx)
+    // kendi dosya başındaki `// @vitest-environment jsdom` docblock'u ile DOM alır.
     environment: "node",
-    include: ["src/**/*.test.ts"],
+    include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
+    setupFiles: ["./src/test/setup.ts"],
   },
 });

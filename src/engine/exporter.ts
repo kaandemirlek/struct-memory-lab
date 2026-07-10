@@ -7,7 +7,8 @@
 // yorumları eklenir.
 // ============================================================================
 
-import type { CppPrimitive, Field, StructModel } from "@/types";
+import type { CppPrimitive, Field, Platform, StructModel } from "@/types";
+import { DEFAULT_PLATFORM } from "@/types";
 import { bitsPerWord, isUnsignedInt } from "@/engine/bitfields";
 import { computeLayout } from "@/engine/layout";
 import { EMBED_MARKER } from "@/engine/embed";
@@ -16,6 +17,8 @@ import { EMBED_MARKER } from "@/engine/embed";
 export interface ExportCppOptions {
   /** Alan başına offset/size yorumları + sizeof özeti ekle (varsayılan: true). */
   comments?: boolean;
+  /** Offset/size yorumları ve static_assert'ler bu platforma göre hesaplanır. */
+  platform?: Platform;
 }
 
 /** 4 boşluk girinti (C++ konvansiyonu). */
@@ -103,7 +106,7 @@ function formatBitMacros(model: StructModel): string[] {
     const suffix = bpw > 32 ? "ull" : "u"; // 64-bit word'de maske ULL olmalı
     const isArray = field.arrayLength > 1;
 
-    lines.push(`// --- ${field.name} bit alanları (mask makroları) ---`);
+    lines.push(`// --- ${field.name} bit fields (mask macros) ---`);
 
     for (const b of bits) {
       const base = `${structPrefix}_${macroIdent(field.name)}_${macroIdent(b.name)}`;
@@ -131,18 +134,18 @@ function formatBitMacros(model: StructModel): string[] {
  *   static_assert(sizeof(X) == N, ...) + her alan için offsetof kontrolü.
  * Header'ı kullanan derleyici beklenen yerleşimden saparsa DERLEME PATLAR.
  */
-function formatStaticAsserts(model: StructModel): string[] {
+function formatStaticAsserts(model: StructModel, platform: Platform): string[] {
   const name = model.name.trim() || "Struct";
-  const layout = computeLayout(model);
+  const layout = computeLayout(model, platform);
   if (layout.fields.length === 0) return [];
 
-  const lines = [`// --- ${name} bellek yerleşimi doğrulaması (ABI kilidi) ---`];
+  const lines = [`// --- ${name} memory layout verification (ABI lock) ---`];
   lines.push(
-    `static_assert(sizeof(${name}) == ${layout.totalSize}, "sizeof(${name}) beklenenden farkli");`
+    `static_assert(sizeof(${name}) == ${layout.totalSize}, "sizeof(${name}) does not match the expected layout");`
   );
   for (const f of layout.fields) {
     lines.push(
-      `static_assert(offsetof(${name}, ${f.name}) == ${f.offset}, "${name}.${f.name} offset kaymis");`
+      `static_assert(offsetof(${name}, ${f.name}) == ${f.offset}, "${name}.${f.name} moved to a different offset");`
     );
   }
   return lines;
@@ -154,7 +157,7 @@ function needsCstddef(model: StructModel, nested: StructModel[]): boolean {
 }
 
 /** Bir struct'ın gövdesini ("struct X { ... };") satır satır üretir. */
-function formatStruct(model: StructModel, withComments: boolean): string[] {
+function formatStruct(model: StructModel, withComments: boolean, platform: Platform): string[] {
   const name = model.name.trim() || "Struct";
   const lines = [`struct ${name} {`];
 
@@ -165,7 +168,7 @@ function formatStruct(model: StructModel, withComments: boolean): string[] {
   }
 
   if (withComments) {
-    const layout = computeLayout(model);
+    const layout = computeLayout(model, platform);
     const decls = model.fields.map(declOf);
     const width = Math.max(...decls.map((d) => d.length));
 
@@ -208,6 +211,7 @@ function collectNested(
 
 export function exportCpp(model: StructModel, options: ExportCppOptions = {}): string {
   const withComments = options.comments ?? true;
+  const platform = options.platform ?? DEFAULT_PLATFORM;
   const out: string[] = ["#pragma once"];
 
   // Nested tanımları önden topla (include kararları ve tanım sırası için gerekli).
@@ -220,9 +224,12 @@ export function exportCpp(model: StructModel, options: ExportCppOptions = {}): s
   if (includes.length > 0) out.push("", ...includes);
 
   // Bir struct tanımını, yerleşim doğrulamasını ve (varsa) bit makrolarını ekler.
+  // #pragma pack yalnızca tanımı sarar (static_assert'ler pack'ten etkilenmez).
   const pushStruct = (m: StructModel): void => {
-    out.push("", ...formatStruct(m, withComments));
-    const asserts = formatStaticAsserts(m);
+    if (m.pack) out.push("", `#pragma pack(push, ${m.pack})`);
+    out.push(m.pack ? "" : "", ...formatStruct(m, withComments, platform));
+    if (m.pack) out.push("#pragma pack(pop)");
+    const asserts = formatStaticAsserts(m, platform);
     if (asserts.length > 0) out.push("", ...asserts);
     const macros = formatBitMacros(m);
     if (macros.length > 0) out.push("", ...macros);
@@ -233,10 +240,10 @@ export function exportCpp(model: StructModel, options: ExportCppOptions = {}): s
   pushStruct(model);
 
   if (withComments) {
-    const layout = computeLayout(model);
+    const layout = computeLayout(model, platform);
     out.push(
       "",
-      `// sizeof = ${layout.totalSize} bytes, alignment = ${layout.alignment} bytes, padding = ${layout.totalPadding} bytes`
+      `// sizeof = ${layout.totalSize} bytes, alignment = ${layout.alignment} bytes, padding = ${layout.totalPadding} bytes (${platform})`
     );
   }
 
@@ -245,7 +252,7 @@ export function exportCpp(model: StructModel, options: ExportCppOptions = {}): s
   // derlemesini etkilemez; elle yazılmış header'larda bulunmaz.
   out.push(
     "",
-    "// --- struct-memory-lab: model verisi (import edince Status Bits dahil birebir geri yüklenir; silmeyin) ---",
+    "// --- struct-memory-lab: embedded model (re-importing restores everything, incl. Status Bits — do not delete) ---",
     `${EMBED_MARKER}${JSON.stringify(model)}`
   );
 
@@ -253,12 +260,13 @@ export function exportCpp(model: StructModel, options: ExportCppOptions = {}): s
 }
 
 /** Modeli + hesaplanmış layout metadata'sını yapılandırılmış JSON olarak verir. */
-export function exportModelJson(model: StructModel): string {
-  const layout = computeLayout(model);
+export function exportModelJson(model: StructModel, platform: Platform = DEFAULT_PLATFORM): string {
+  const layout = computeLayout(model, platform);
   return JSON.stringify(
     {
       format: "struct-memory-lab",
       version: 1,
+      platform,
       struct: model,
       layout: {
         totalSize: layout.totalSize,

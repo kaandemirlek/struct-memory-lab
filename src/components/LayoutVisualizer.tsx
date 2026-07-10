@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { Fragment, useCallback, useRef, useState, useSyncExternalStore } from "react";
 import {
   DndContext,
   closestCenter,
@@ -21,6 +21,8 @@ import { resolveComparison, useStructStore } from "@/store/useStructStore";
 import { computeLayout } from "@/engine/layout";
 import { toSegments, type LayoutSegment } from "@/engine/segments";
 import { analyzeFieldImpacts, type FieldImpact } from "@/engine/compatibility";
+import { alignFieldIds } from "@/engine/identity";
+import { PLATFORMS } from "@/engine/platform";
 import { isUnsignedInt } from "@/engine/bitfields";
 import type {
   FieldLayout,
@@ -341,6 +343,26 @@ function Band({ layout, pxPerByte }: { layout: LayoutResult; pxPerByte: number }
           );
         })}
       </div>
+
+      {/* Offset cetveli — canlı (sortable) görünümdeki ile aynı düzen; önizleme
+          ve nested iç yerleşimlerde de byte offset'leri görünsün. */}
+      <div className="mt-1 flex w-max">
+        {segments.map((s, i) =>
+          s.kind === "padding" ? (
+            <div key={i} style={{ width: s.size * pxPerByte }} className="shrink-0" />
+          ) : (
+            <div
+              key={i}
+              style={{ width: s.size * pxPerByte }}
+              className="shrink-0 text-[10px] text-muted"
+            >
+              {s.offset}
+            </div>
+          )
+        )}
+        <span className="pl-0.5 text-[10px] text-muted">{layout.totalSize}</span>
+      </div>
+
       {segments
         .filter((s) => s.kind === "field" && s.type === "struct" && s.nested && open[s.offset])
         .map((s, i) => (
@@ -631,20 +653,26 @@ export default function LayoutVisualizer({ mode = "edit" }: { mode?: Mode }) {
   const targetVersionId = useStructStore((s) => s.targetVersionId);
   const previewVersionId = useStructStore((s) => s.previewVersionId);
   const setPreviewVersion = useStructStore((s) => s.setPreviewVersion);
+  const platform = useStructStore((s) => s.platform);
+  // Yerleşim sayılarının HANGİ platforma ait olduğu panel başlığında görünsün —
+  // yoksa platform değişimi bazı struct'larda hiçbir görünür fark yaratmaz.
+  const platformLabel = PLATFORMS.find((p) => p.id === platform)?.label ?? platform;
 
-  // Compare mode: manual zoom. Edit mode: auto-scale to the container width.
-  const [pxPerByte, setPxPerByte] = useState(28);
+  // Her iki modda da yerleşim, kabın genişliğine otomatik ölçeklenir. Callback
+  // ref kullanılır çünkü ölçülen div sekmeye göre farklı bir elemandır (edit ↔
+  // compare) ve koşullu render'da mount-anı effect'i yeni elemanı yakalayamaz.
   const [byteLimit, setByteLimit] = useState<number | "">("");
-  const containerRef = useRef<HTMLDivElement>(null);
   const [containerW, setContainerW] = useState(0);
-  useEffect(() => {
-    const el = containerRef.current;
+  const resizeObserver = useRef<ResizeObserver | null>(null);
+  const containerRef = useCallback((el: HTMLDivElement | null) => {
+    resizeObserver.current?.disconnect();
+    resizeObserver.current = null;
     if (!el) return;
     const ro = new ResizeObserver((entries) =>
       setContainerW(entries[0].contentRect.width)
     );
     ro.observe(el);
-    return () => ro.disconnect();
+    resizeObserver.current = ro;
   }, []);
 
   // Edit sekmesinde bir snapshot önizleniyorsa onu SALT-OKUNUR göster;
@@ -669,8 +697,11 @@ export default function LayoutVisualizer({ mode = "edit" }: { mode?: Mode }) {
       );
     }
 
-    const fromLayout = computeLayout(cmp.fromModel);
-    const toLayout = computeLayout(cmp.toModel);
+    // İki ayrı import'tan gelen aynı isimli alanlar aynı rengi/eşleşmeyi alsın
+    // diye From tarafının id'leri To tarafına hizalanır (bkz. engine/identity.ts).
+    const alignedFromModel = alignFieldIds(cmp.fromModel, cmp.toModel);
+    const fromLayout = computeLayout(alignedFromModel, platform);
+    const toLayout = computeLayout(cmp.toModel, platform);
 
     if (!isComparison) {
       return (
@@ -680,65 +711,55 @@ export default function LayoutVisualizer({ mode = "edit" }: { mode?: Mode }) {
       );
     }
 
-    const targetImpacts = analyzeFieldImpacts(cmp.fromModel, cmp.toModel);
+    const targetImpacts = analyzeFieldImpacts(cmp.fromModel, cmp.toModel, (m) =>
+      computeLayout(m, platform)
+    );
     const targetImpactsById = new Map(
       targetImpacts.map((impact) => [impact.fieldId, impact])
     );
-    const colorById = buildColorById(cmp.fromModel, cmp.toModel);
+    const colorById = buildColorById(alignedFromModel, cmp.toModel);
+
+    // İki şerit AYNI ölçeği paylaşır (büyük olana göre sığdır) — böylece aynı
+    // byte genişliği iki panelde de aynı piksel genişliğinde görünür.
+    // 34px: Panel'in p-4 padding'i (2×16) + kenarlıklar.
+    const maxTotalSize = Math.max(fromLayout.totalSize, toLayout.totalSize);
+    const comparePxPerByte =
+      maxTotalSize > 0 && containerW > 0
+        ? Math.max(4, Math.min(48, Math.floor((containerW - 34) / maxTotalSize)))
+        : 12;
 
     return (
-      <div className="space-y-3">
-        <div className="rounded-lg border border-border bg-surface p-3 shadow-sm">
-          <div className="flex items-center gap-2">
-            <label className="text-xs text-muted" htmlFor="zoom-compare">
-              Zoom
-            </label>
-            <input
-              id="zoom-compare"
-              type="range"
-              min={6}
-              max={64}
-              step={1}
-              value={pxPerByte}
-              onChange={(e) => setPxPerByte(Number(e.target.value))}
-              className="flex-1 accent-accent"
-            />
-            <span className="text-xs tabular-nums text-muted">{pxPerByte} px/byte</span>
-          </div>
-        </div>
+      <div ref={containerRef} className="space-y-4">
+        <Panel
+          title={cmp.fromLabel}
+          description={`size ${fromLayout.totalSize} B / align ${fromLayout.alignment} B / padding ${fromLayout.totalPadding} B · ${platformLabel}`}
+        >
+          <LayoutStrip
+            layout={fromLayout}
+            segments={toSegments(fromLayout)}
+            pxPerByte={comparePxPerByte}
+            colorById={colorById}
+          />
+        </Panel>
 
-        <div className="grid min-w-0 items-start gap-4 xl:grid-cols-2">
-          <Panel
-            title={cmp.fromLabel}
-            description={`size ${fromLayout.totalSize} B / align ${fromLayout.alignment} B / padding ${fromLayout.totalPadding} B`}
-          >
-            <LayoutStrip
-              layout={fromLayout}
-              segments={toSegments(fromLayout)}
-              pxPerByte={pxPerByte}
-              colorById={colorById}
-            />
-          </Panel>
-
-          <Panel
-            title={cmp.toLabel}
-            description={`size ${toLayout.totalSize} B / align ${toLayout.alignment} B / padding ${toLayout.totalPadding} B`}
-          >
-            <LayoutStrip
-              layout={toLayout}
-              segments={toSegments(toLayout)}
-              pxPerByte={pxPerByte}
-              impactsById={targetImpactsById}
-              colorById={colorById}
-            />
-          </Panel>
-        </div>
+        <Panel
+          title={cmp.toLabel}
+          description={`size ${toLayout.totalSize} B / align ${toLayout.alignment} B / padding ${toLayout.totalPadding} B · ${platformLabel}`}
+        >
+          <LayoutStrip
+            layout={toLayout}
+            segments={toSegments(toLayout)}
+            pxPerByte={comparePxPerByte}
+            impactsById={targetImpactsById}
+            colorById={colorById}
+          />
+        </Panel>
       </div>
     );
   }
 
   // ---- Edit mode (interactive map + read-only snapshot preview) ----
-  const layout = computeLayout(editModelToShow);
+  const layout = computeLayout(editModelToShow, platform);
   const hasNested = layout.fields.some((f) => f.type === "struct" && f.nested);
   const autoPxPerByte =
     layout.totalSize > 0 && containerW > 0
@@ -751,7 +772,7 @@ export default function LayoutVisualizer({ mode = "edit" }: { mode?: Mode }) {
   return (
     <Panel
       title={previewVersion ? `Memory Layout — ${previewVersion.label}` : "Memory Layout"}
-      description={`size ${layout.totalSize} B · align ${layout.alignment} B · padding ${layout.totalPadding} B`}
+      description={`size ${layout.totalSize} B · align ${layout.alignment} B · padding ${layout.totalPadding} B · ${platformLabel}`}
     >
       {previewVersion && (
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-accent/40 bg-accent/10 px-3 py-2 text-xs">

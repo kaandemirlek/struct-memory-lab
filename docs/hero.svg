@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 336" width="720" height="336" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif">
+  <defs>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <rect width="8" height="8" fill="#e2e8f0"/>
+      <line x1="0" y1="0" x2="0" y2="8" stroke="#94a3b8" stroke-width="2"/>
+    </pattern>
+  </defs>
+
+  <!-- card -->
+  <rect x="2" y="2" width="716" height="332" rx="16" fill="#f8fafc" stroke="#e2e8f0" stroke-width="2"/>
+
+  <!-- header -->
+  <text x="32" y="46" font-size="22" font-weight="700" fill="#0f172a">Struct Memory Lab</text>
+  <text x="32" y="70" font-size="13" fill="#64748b">See a C++ struct&#39;s exact memory layout — offsets, padding, alignment — and catch binary-breaking changes.</text>
+  <text x="32" y="100" font-size="12.5" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" fill="#475569">struct Player  ·  sizeof = 40  ·  align = 4  ·  padding = 3   (Linux/macOS x64)</text>
+
+  <!-- byte strip: id[4] alive[1] pad[3] position:Vec3[12] age[5]x4 = 40 bytes @ 16px/byte, x0=40 -->
+  <g>
+    <!-- id: offset 0, 4B -->
+    <rect x="40" y="124" width="64" height="72" rx="4" fill="#f472b6"/>
+    <text x="72" y="153" text-anchor="middle" font-size="13" font-weight="600" fill="#3b0a26">id</text>
+    <text x="72" y="169" text-anchor="middle" font-size="10" font-family="ui-monospace, monospace" fill="#3b0a26" opacity="0.75">uint32_t</text>
+    <text x="72" y="183" text-anchor="middle" font-size="9" fill="#3b0a26" opacity="0.6">4B</text>
+
+    <!-- alive: offset 4, 1B (too narrow for text; see legend) -->
+    <rect x="104" y="124" width="16" height="72" rx="2" fill="#34d399"/>
+
+    <!-- padding: offset 5, 3B -->
+    <rect x="120" y="124" width="48" height="72" rx="4" fill="url(#hatch)"/>
+    <text x="144" y="165" text-anchor="middle" font-size="11" fill="#475569">pad 3</text>
+
+    <!-- position: Vec3, offset 8, 12B -->
+    <rect x="168" y="124" width="192" height="72" rx="4" fill="#fbbf24"/>
+    <text x="264" y="153" text-anchor="middle" font-size="13" font-weight="600" fill="#4a2c04">position ▸</text>
+    <text x="264" y="169" text-anchor="middle" font-size="10" font-family="ui-monospace, monospace" fill="#4a2c04" opacity="0.8">Vec3</text>
+    <text x="264" y="183" text-anchor="middle" font-size="9" fill="#4a2c04" opacity="0.6">12B</text>
+
+    <!-- age[5]: offset 20, 5 x 4B -->
+    <g fill="#60a5fa">
+      <rect x="360" y="124" width="64" height="72" rx="4"/>
+      <rect x="424" y="124" width="64" height="72" rx="4"/>
+      <rect x="488" y="124" width="64" height="72" rx="4"/>
+      <rect x="552" y="124" width="64" height="72" rx="4"/>
+      <rect x="616" y="124" width="64" height="72" rx="4"/>
+    </g>
+    <g fill="#ffffff" opacity="0.5">
+      <rect x="423" y="124" width="2" height="72"/>
+      <rect x="487" y="124" width="2" height="72"/>
+      <rect x="551" y="124" width="2" height="72"/>
+      <rect x="615" y="124" width="2" height="72"/>
+    </g>
+    <text x="392" y="157" text-anchor="middle" font-size="11" font-weight="600" fill="#0b2a52">age[0]</text>
+    <text x="456" y="157" text-anchor="middle" font-size="11" font-weight="600" fill="#0b2a52">age[1]</text>
+    <text x="520" y="157" text-anchor="middle" font-size="11" font-weight="600" fill="#0b2a52">age[2]</text>
+    <text x="584" y="157" text-anchor="middle" font-size="11" font-weight="600" fill="#0b2a52">age[3]</text>
+    <text x="648" y="157" text-anchor="middle" font-size="11" font-weight="600" fill="#0b2a52">age[4]</text>
+    <text x="520" y="173" text-anchor="middle" font-size="9" font-family="ui-monospace, monospace" fill="#0b2a52" opacity="0.7">uint32_t[5]</text>
+  </g>
+
+  <!-- offset ruler -->
+  <g stroke="#cbd5e1" stroke-width="1">
+    <line x1="40" y1="200" x2="40" y2="208"/>
+    <line x1="104" y1="200" x2="104" y2="208"/>
+    <line x1="168" y1="200" x2="168" y2="208"/>
+    <line x1="360" y1="200" x2="360" y2="208"/>
+    <line x1="680" y1="200" x2="680" y2="208"/>
+  </g>
+  <g font-size="10" font-family="ui-monospace, monospace" fill="#94a3b8">
+    <text x="40" y="222" text-anchor="middle">0</text>
+    <text x="104" y="222" text-anchor="middle">4</text>
+    <text x="168" y="222" text-anchor="middle">8</text>
+    <text x="360" y="222" text-anchor="middle">20</text>
+    <text x="680" y="222" text-anchor="middle">40</text>
+  </g>
+
+  <!-- legend -->
+  <g font-size="11" fill="#475569">
+    <circle cx="40" cy="252" r="5" fill="#f472b6"/>
+    <text x="50" y="256">id</text>
+    <circle cx="86" cy="252" r="5" fill="#34d399"/>
+    <text x="96" y="256">alive</text>
+    <circle cx="146" cy="252" r="5" fill="#fbbf24"/>
+    <text x="156" y="256">position (Vec3)</text>
+    <circle cx="272" cy="252" r="5" fill="#60a5fa"/>
+    <text x="282" y="256">age[5]</text>
+    <rect x="331" y="247" width="10" height="10" rx="2" fill="url(#hatch)"/>
+    <text x="347" y="256">padding</text>
+  </g>
+
+  <!-- compare hint pill -->
+  <g>
+    <rect x="32" y="284" width="656" height="34" rx="8" fill="#fef2f2" stroke="#fecaca" stroke-width="1"/>
+    <circle cx="52" cy="301" r="5" fill="#ef4444"/>
+    <text x="66" y="305" font-size="12" fill="#7f1d1d"><tspan font-weight="700">Compare v1 → v2</tspan>  ·  field &#34;health&#34; moved offset 8 → 16  ·  <tspan font-weight="700">BREAKING</tspan> — binary-incompatible</text>
+  </g>
+</svg>

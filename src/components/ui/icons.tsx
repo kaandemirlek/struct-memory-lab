@@ -114,6 +114,26 @@ export function PanelRightOpenIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function PanelLeftCloseIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M9 4v16" />
+      <path d="m14 9 3 3-3 3" />
+    </svg>
+  );
+}
+
+export function PanelLeftOpenIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M9 4v16" />
+      <path d="m16 9-3 3 3 3" />
+    </svg>
+  );
+}
+
 /** Link — copy a shareable permalink. */
 export function LinkIcon(props: SVGProps<SVGSVGElement>) {
   return (

@@ -20,7 +20,7 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { useStructStore } from "@/store/useStructStore";
+import { makeId, useStructStore } from "@/store/useStructStore";
 import { validateStruct } from "@/engine/validation";
 import { TYPE_INFO, type CppPrimitive, type Field } from "@/types";
 import Panel from "@/components/ui/Panel";
@@ -106,7 +106,19 @@ function FieldRowInner({ field }: { field: Field }) {
         value={field.type}
         onChange={(e) => {
           const v = e.target.value as CppPrimitive | "struct";
-          if (v === "struct") return; // nested zaten struct; dropdown'dan "struct"a geçiş yok
+          if (v === "struct") {
+            if (field.type === "struct") return; // zaten struct — no-op
+            // Primitive → yeni nested struct: tek alanla başlat, aşağıdaki
+            // NestedStructEditor ile düzenlenir.
+            updateField(field.id, {
+              type: "struct",
+              nested: {
+                name: "NewStruct",
+                fields: [{ id: makeId("f"), name: "value", type: "int32_t", arrayLength: 1 }],
+              },
+            });
+            return;
+          }
           // primitive'e dönüşte iç içe struct verisini temizle (layout/export tutarlı kalsın)
           updateField(field.id, { type: v, nested: undefined });
         }}
@@ -115,9 +127,9 @@ function FieldRowInner({ field }: { field: Field }) {
       >
         {/* Nested alan: gerçek tipi ("struct") seçili gösterilemediği için struct adını
             (Vec3) bir option olarak ekle; böylece "bool" yerine doğru tip görünür. */}
-        {field.type === "struct" && (
-          <option value="struct">{field.nested?.name || "struct"}</option>
-        )}
+        <option value="struct">
+          {field.type === "struct" ? field.nested?.name || "struct" : "struct…"}
+        </option>
         {TYPES.map((t) => (
           <option key={t} value={t}>
             {t}
@@ -139,6 +151,48 @@ function FieldRowInner({ field }: { field: Field }) {
   );
 }
 
+// Nested struct'ın iç düzenleyicisi: struct adı + alan satırları (özyinelemeli).
+// updateField/removeField/addField ağacın her seviyesinde çalıştığı için
+// satır içeriği FieldRowInner ile paylaşılır. İç alanlar sürüklenemez
+// (reorder yalnızca üst seviyede) — bilinçli kapsam kararı.
+function NestedStructEditor({ field }: { field: Field }) {
+  const { addField, updateField } = useStructStore();
+  if (field.type !== "struct" || !field.nested) return null;
+  const nested = field.nested;
+
+  return (
+    <div className="ml-7 mt-2 space-y-2 border-l-2 border-accent/30 pl-3">
+      <div className="flex items-center gap-2">
+        <span className="shrink-0 text-xs text-muted">struct</span>
+        <input
+          value={nested.name}
+          onChange={(e) =>
+            updateField(field.id, { nested: { ...nested, name: e.target.value } })
+          }
+          aria-label={`Struct name for ${field.name}`}
+          className={`w-36 min-w-0 ${inputClass}`}
+        />
+        <button
+          type="button"
+          onClick={() => addField(field.id)}
+          className="ml-auto shrink-0 text-xs font-medium text-accent hover:underline"
+        >
+          + Add field
+        </button>
+      </div>
+
+      {nested.fields.map((f) => (
+        <div key={f.id}>
+          <div className="flex items-center gap-2">
+            <FieldRowInner field={f} />
+          </div>
+          <NestedStructEditor field={f} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // Sortable row (useSortable — client only, inside DndContext).
 function SortableFieldRow({ field }: { field: Field }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
@@ -151,16 +205,19 @@ function SortableFieldRow({ field }: { field: Field }) {
   };
 
   return (
-    <div ref={setNodeRef} style={style} className="flex items-center gap-2">
-      <button
-        {...attributes}
-        {...listeners}
-        className="cursor-grab touch-none px-1 text-muted hover:text-foreground active:cursor-grabbing"
-        aria-label="Drag to reorder"
-      >
-        <GripIcon />
-      </button>
-      <FieldRowInner field={field} />
+    <div ref={setNodeRef} style={style}>
+      <div className="flex items-center gap-2">
+        <button
+          {...attributes}
+          {...listeners}
+          className="cursor-grab touch-none px-1 text-muted hover:text-foreground active:cursor-grabbing"
+          aria-label="Drag to reorder"
+        >
+          <GripIcon />
+        </button>
+        <FieldRowInner field={field} />
+      </div>
+      <NestedStructEditor field={field} />
     </div>
   );
 }
@@ -168,16 +225,25 @@ function SortableFieldRow({ field }: { field: Field }) {
 // Static row (server + pre-mount; no useSortable → hydration-safe).
 function StaticFieldRow({ field }: { field: Field }) {
   return (
-    <div className="flex items-center gap-2">
-      <span className="px-1 text-muted/50" aria-hidden>
-        <GripIcon />
-      </span>
-      <FieldRowInner field={field} />
+    <div>
+      <div className="flex items-center gap-2">
+        <span className="px-1 text-muted/50" aria-hidden>
+          <GripIcon />
+        </span>
+        <FieldRowInner field={field} />
+      </div>
+      <NestedStructEditor field={field} />
     </div>
   );
 }
 
-export default function FieldEditor() {
+// collapseAction: WorkspaceShell'in verdiği "sidebar'a daralt" düğmesi
+// (VersionPanel'deki desenle aynı — panel başlığının sağına yerleşir).
+export default function FieldEditor({
+  collapseAction,
+}: {
+  collapseAction?: React.ReactNode;
+}) {
   const model = useStructStore((s) => s.currentModel);
   const { addField, setStructName, reorderFields } = useStructStore();
   const issues = validateStruct(model);
@@ -209,9 +275,12 @@ export default function FieldEditor() {
       title="Fields"
       description="Edit the struct name and fields. Drag the handle to reorder."
       actions={
-        <Button variant="secondary" onClick={addField}>
-          Add field
-        </Button>
+        <>
+          <Button variant="secondary" onClick={() => addField()}>
+            Add field
+          </Button>
+          {collapseAction}
+        </>
       }
     >
       <label className="mb-3 block">

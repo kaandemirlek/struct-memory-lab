@@ -8,25 +8,30 @@
 // ============================================================================
 
 import { readFileSync } from "node:fs";
-import { parseCpp } from "@/engine/parser";
+import { parseCpp, parseModelJson } from "@/engine/parser";
 import { diffVersions } from "@/engine/diff";
 import { generateCompatibilityReport } from "@/engine/compatibility";
-import type { StructModel } from "@/types";
+import { computeLayout } from "@/engine/layout";
+import { isPlatform, PLATFORMS } from "@/engine/platform";
+import type { Platform, StructModel } from "@/types";
+import { DEFAULT_PLATFORM } from "@/types";
 
 interface Options {
   strict: boolean;
   json: boolean;
+  platform: Platform;
 }
 
 function printUsage(): void {
   console.log(`struct-check — fail CI on binary-incompatible struct changes
 
 Usage:
-  npm run struct-check -- <baseline> <candidate> [--strict] [--json]
+  npm run struct-check -- <baseline> <candidate> [--strict] [--json] [--platform=<id>]
 
   <baseline>, <candidate>   .h/.hpp C++ headers, or .json struct models
   --strict                  also fail on non-breaking "risky" warnings
   --json                    emit machine-readable JSON
+  --platform=<id>           target ABI: ${PLATFORMS.map((p) => p.id).join(" | ")} (default ${DEFAULT_PLATFORM})
 
 Exit codes:
   0  compatible
@@ -34,25 +39,36 @@ Exit codes:
   2  usage / parse error`);
 }
 
+// JSON, uygulamayla AYNI yoldan yüklenir (parseModelJson): hem ham modeli hem
+// tam export objesini ({ format, struct, layout }) kabul eder ve alanları
+// normalize eder. Hata mesajına dosya yolu eklenir (CI logunda iz sürülebilsin).
+// Parse platformdan bağımsızdır (long/size_t olduğu gibi saklanır); platform
+// yalnızca aşağıda computeLayout'ta rol oynar.
 function loadModel(path: string): StructModel {
   const raw = readFileSync(path, "utf8");
-  if (path.toLowerCase().endsWith(".json")) {
-    const obj = JSON.parse(raw);
-    if (!obj || typeof obj.name !== "string" || !Array.isArray(obj.fields)) {
-      throw new Error(`${path}: not a valid struct model JSON`);
-    }
-    return obj as StructModel;
+  try {
+    return path.toLowerCase().endsWith(".json") ? parseModelJson(raw) : parseCpp(raw);
+  } catch (e) {
+    throw new Error(`${path}: ${e instanceof Error ? e.message : String(e)}`);
   }
-  return parseCpp(raw);
 }
 
 function parseArgs(argv: string[]): { files: string[]; opts: Options } {
   const files: string[] = [];
-  const opts: Options = { strict: false, json: false };
+  const opts: Options = { strict: false, json: false, platform: DEFAULT_PLATFORM };
   for (const a of argv) {
     if (a === "--strict") opts.strict = true;
     else if (a === "--json") opts.json = true;
-    else if (a === "-h" || a === "--help") {
+    else if (a.startsWith("--platform=")) {
+      const v = a.slice("--platform=".length);
+      if (!isPlatform(v)) {
+        console.error(
+          `error: unknown platform "${v}" (expected ${PLATFORMS.map((p) => p.id).join(", ")})`
+        );
+        process.exit(2);
+      }
+      opts.platform = v;
+    } else if (a === "-h" || a === "--help") {
       printUsage();
       process.exit(0);
     } else files.push(a);
@@ -80,8 +96,9 @@ export function main(argv: string[]): void {
     process.exit(2);
   }
 
+  const layoutFn = (m: StructModel) => computeLayout(m, opts.platform);
   const changes = diffVersions(base, candidate);
-  const report = generateCompatibilityReport(base, candidate);
+  const report = generateCompatibilityReport(base, candidate, layoutFn);
   const incompatible =
     report.verdict === "breaking" || (opts.strict && report.verdict === "risky");
 
@@ -91,6 +108,7 @@ export function main(argv: string[]): void {
         {
           baseline: files[0],
           candidate: files[1],
+          platform: opts.platform,
           verdict: report.verdict,
           binaryCompatible: report.binaryCompatible,
           summary: report.summary,

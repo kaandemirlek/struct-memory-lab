@@ -7,6 +7,31 @@ const struct = (name: string, fields: StructModel["fields"]): StructModel => ({
   fields,
 });
 
+describe("exportCpp — platform & pack", () => {
+  it("packed struct #pragma pack ile sarılır ve yerleşim ona göre hesaplanır", () => {
+    const model: StructModel = {
+      ...struct("P", [
+        { id: "1", name: "a", type: "bool", arrayLength: 1 },
+        { id: "2", name: "b", type: "uint32_t", arrayLength: 1 },
+      ]),
+      pack: 1,
+    };
+    const out = exportCpp(model);
+    expect(out).toContain("#pragma pack(push, 1)");
+    expect(out).toContain("#pragma pack(pop)");
+    expect(out).toContain("sizeof(P) == 5");
+  });
+
+  it("static_assert'ler seçilen platforma göre üretilir", () => {
+    const model = struct("S", [
+      { id: "1", name: "a", type: "bool", arrayLength: 1 },
+      { id: "2", name: "b", type: "double", arrayLength: 1 },
+    ]);
+    expect(exportCpp(model)).toContain("sizeof(S) == 16"); // linux64: double @8
+    expect(exportCpp(model, { platform: "x86-32" })).toContain("sizeof(S) == 12"); // double @4
+  });
+});
+
 describe("exportCpp", () => {
   it("emits a compilable header with includes and per-field offset/size comments", () => {
     const model = struct("Player", [

@@ -38,6 +38,23 @@ export default function CodeEditor({
     }
   };
 
+  // Tab, odağı kaydırmak yerine girinti ekler (kod editörü beklentisi).
+  // Shift+Tab varsayılan kalır → klavye kullanıcısı alandan yine çıkabilir.
+  // Önce execCommand denenir (native undo geçmişi korunur); desteklenmezse
+  // değer elle güncellenir ve imleç eklenen girintinin sonuna taşınır.
+  const INDENT = "    ";
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key !== "Tab" || e.shiftKey) return;
+    e.preventDefault();
+    const el = e.currentTarget;
+    if (document.execCommand?.("insertText", false, INDENT)) return;
+    const { selectionStart, selectionEnd } = el;
+    onChange(value.slice(0, selectionStart) + INDENT + value.slice(selectionEnd));
+    requestAnimationFrame(() => {
+      el.selectionStart = el.selectionEnd = selectionStart + INDENT.length;
+    });
+  };
+
   const shared =
     "m-0 w-full rounded-lg border p-3 font-mono text-sm leading-6 whitespace-pre-wrap break-words";
   const tokens = highlightCpp(value);
@@ -60,6 +77,7 @@ export default function CodeEditor({
         ref={textareaRef}
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        onKeyDown={handleKeyDown}
         onScroll={syncScroll}
         rows={rows}
         autoFocus={autoFocus}

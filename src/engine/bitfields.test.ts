@@ -108,7 +108,7 @@ describe("bitWarningsForField", () => {
     expect(bitWarningsForField(f)).toContainEqual(
       expect.objectContaining({
         severity: "warning",
-        message: expect.stringMatching(/sığmıyor.*0\.\.3/),
+        message: expect.stringMatching(/does not fit.*0\.\.3/),
       })
     );
   });

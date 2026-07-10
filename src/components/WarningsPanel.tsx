@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useStructStore, resolveComparison } from "@/store/useStructStore";
 import { generateCompatibilityReport } from "@/engine/compatibility";
+import { computeLayout } from "@/engine/layout";
 import type { WarningSeverity } from "@/types";
 import Panel from "@/components/ui/Panel";
 
@@ -18,11 +19,14 @@ export default function WarningsPanel() {
   const current = useStructStore((s) => s.currentModel);
   const baseVersionId = useStructStore((s) => s.baseVersionId);
   const targetVersionId = useStructStore((s) => s.targetVersionId);
+  const platform = useStructStore((s) => s.platform);
 
   const cmp = resolveComparison(versions, current, baseVersionId, targetVersionId);
   const report =
     cmp.fromModel && cmp.toModel
-      ? generateCompatibilityReport(cmp.fromModel, cmp.toModel)
+      ? generateCompatibilityReport(cmp.fromModel, cmp.toModel, (m) =>
+          computeLayout(m, platform)
+        )
       : null;
   const warnings = report?.warnings ?? [];
   const summaryCounts = report?.summary ?? {

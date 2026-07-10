@@ -12,7 +12,8 @@
 
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
-import type { BitField, Field, StructModel, Version } from "@/types";
+import type { BitField, Field, Platform, StructModel, Version } from "@/types";
+import { DEFAULT_PLATFORM } from "@/types";
 
 // Basit benzersiz id üretici (alanlar ve versiyonlar için).
 let _idCounter = 0;
@@ -20,7 +21,7 @@ export const makeId = (prefix = "id"): string =>
   `${prefix}_${Date.now().toString(36)}_${(_idCounter++).toString(36)}`;
 
 // Bir alanı id'ye göre ağaçta (nested struct'lar dahil) bulup dönüştürür (immutable).
-// Bit alanları nested struct içindeki alanlarda da düzenlenebilsin diye gerekli.
+// Alan düzenleme, bit alanları ve nested struct içi düzenlemeler bunu paylaşır.
 function mapFieldById(fields: Field[], id: string, fn: (f: Field) => Field): Field[] {
   return fields.map((f) => {
     if (f.id === id) return fn(f);
@@ -29,6 +30,17 @@ function mapFieldById(fields: Field[], id: string, fn: (f: Field) => Field): Fie
     }
     return f;
   });
+}
+
+// Bir alanı id'ye göre ağacın HERHANGİ bir seviyesinden siler (immutable).
+function removeFieldById(fields: Field[], id: string): Field[] {
+  return fields
+    .filter((f) => f.id !== id)
+    .map((f) =>
+      f.nested
+        ? { ...f, nested: { ...f.nested, fields: removeFieldById(f.nested.fields, id) } }
+        : f
+    );
 }
 
 // Uygulama açılışında gösterilecek örnek struct.
@@ -80,6 +92,11 @@ interface StructState {
   versions: Version[];
   /** Alan/versiyon notları (takım yorumları). */
   annotations: Annotation[];
+  /**
+   * Hedef platform / ABI (yerleşim + parser "long" eşlemesi bunu izler).
+   * Global bir görünüm ayarıdır: modele değil, hesaplamaya aittir.
+   */
+  platform: Platform;
   /** Karşılaştırmanın KAYNAK tarafı (From): seçili versiyon (null = en son). */
   baseVersionId: string | null;
   /** Karşılaştırmanın HEDEF tarafı (To): seçili versiyon (null = güncel düzenlemeler). */
@@ -100,8 +117,13 @@ interface StructState {
   // --- PERSON A action'ları (currentModel düzenleme) ---
   setModel: (model: StructModel) => void;
   setStructName: (name: string) => void;
-  addField: () => void;
+  /** Hedef platformu değiştir (undo geçmişine girmez — model değişmiyor). */
+  setPlatform: (platform: Platform) => void;
+  /** Alan ekle: parentFieldId verilirse o nested struct'ın içine, yoksa üst seviyeye. */
+  addField: (parentFieldId?: string) => void;
+  /** Alanı güncelle — ağacın herhangi bir seviyesinde (nested dahil). */
   updateField: (id: string, patch: Partial<Omit<Field, "id">>) => void;
+  /** Alanı sil — ağacın herhangi bir seviyesinde (nested dahil). */
   removeField: (id: string) => void;
   reorderFields: (fromIndex: number, toIndex: number) => void;
   // bit alanları (status word semantiği)
@@ -161,6 +183,7 @@ export const useStructStore = create<StructState>()(
         currentModel: initialModel,
         versions: [],
         annotations: [],
+        platform: DEFAULT_PLATFORM,
         baseVersionId: null,
         targetVersionId: null,
         previewVersionId: null,
@@ -175,25 +198,40 @@ export const useStructStore = create<StructState>()(
 
         setStructName: (name) => editModel((m) => ({ ...m, name })),
 
-        addField: () =>
-          editModel((m) => ({
-            ...m,
-            fields: [
-              ...m.fields,
-              { id: makeId("f"), name: "newField", type: "int32_t", arrayLength: 1 },
-            ],
-          })),
+        setPlatform: (platform) => set({ platform }),
+
+        addField: (parentFieldId) =>
+          editModel((m) => {
+            const newField: Field = {
+              id: makeId("f"),
+              name: "newField",
+              type: "int32_t",
+              arrayLength: 1,
+            };
+            if (!parentFieldId) {
+              return { ...m, fields: [...m.fields, newField] };
+            }
+            // Nested struct'ın içine ekle (parent bir struct alanı olmalı).
+            return {
+              ...m,
+              fields: mapFieldById(m.fields, parentFieldId, (f) =>
+                f.nested
+                  ? { ...f, nested: { ...f.nested, fields: [...f.nested.fields, newField] } }
+                  : f
+              ),
+            };
+          }),
 
         updateField: (id, patch) =>
           editModel((m) => ({
             ...m,
-            fields: m.fields.map((f) => (f.id === id ? { ...f, ...patch } : f)),
+            fields: mapFieldById(m.fields, id, (f) => ({ ...f, ...patch })),
           })),
 
         removeField: (id) =>
           editModel((m) => ({
             ...m,
-            fields: m.fields.filter((f) => f.id !== id),
+            fields: removeFieldById(m.fields, id),
           })),
 
         reorderFields: (fromIndex, toIndex) =>
@@ -360,6 +398,7 @@ export const useStructStore = create<StructState>()(
         currentModel: state.currentModel,
         versions: state.versions,
         annotations: state.annotations,
+        platform: state.platform,
         baseVersionId: state.baseVersionId,
         targetVersionId: state.targetVersionId,
       }),

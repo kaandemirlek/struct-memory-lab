@@ -25,6 +25,7 @@ export default function ChatAssistant() {
   const versions = useStructStore((s) => s.versions);
   const baseVersionId = useStructStore((s) => s.baseVersionId);
   const targetVersionId = useStructStore((s) => s.targetVersionId);
+  const platform = useStructStore((s) => s.platform);
 
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<ChatEntry[]>([]);
@@ -68,7 +69,7 @@ export default function ChatAssistant() {
 
     try {
       const cmp = resolveComparison(versions, model, baseVersionId, targetVersionId);
-      const context = buildStructContext(model, versions, cmp);
+      const context = buildStructContext(model, versions, cmp, platform);
       // Send only role/content to the API — usage is display-only.
       const apiMessages: ChatMessage[] = nextMessages.map(({ role, content }) => ({
         role,

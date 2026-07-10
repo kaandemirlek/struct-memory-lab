@@ -75,6 +75,26 @@ describe("diffVersions", () => {
       detail: "Field order changed",
     });
   });
+
+  // İki ayrı parse aynı struct'a TAZE (kesişmeyen) id'ler verir; eşleştirme
+  // isim fallback'ine düşmeli, alanlar "removed + added" görünmemeli.
+  it("matches fields by name when ids are disjoint (two separate parses)", () => {
+    const a = struct([f("a1", "id", "uint32_t"), f("a2", "alive", "bool")]);
+    const b = struct([f("b1", "id", "uint32_t"), f("b2", "alive", "bool")]);
+    expect(diffVersions(a, b)).toEqual([]);
+  });
+
+  it("reports only the real change across two separate parses", () => {
+    const a = struct([f("a1", "id", "uint32_t"), f("a2", "alive", "bool")]);
+    const b = struct([
+      f("b1", "id", "uint32_t"),
+      f("b2", "alive", "bool"),
+      f("b3", "score", "int64_t"),
+    ]);
+    expect(diffVersions(a, b)).toEqual([
+      { kind: "added", fieldName: "score", detail: "score: int64_t" },
+    ]);
+  });
 });
 
 describe("summarizeDiff", () => {

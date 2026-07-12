@@ -62,7 +62,7 @@ npx tsc --noEmit  # type-check
 The **Ask AI** panel (bottom-right) is grounded on the deterministic engine's output, so its answers reflect your real layout.
 
 - **Offline by default** — with no configuration it gives best-effort answers about size, padding, alignment, fields, versions, and changes. No API key or network needed.
-- **Live mode** — for full conversational answers, copy `.env.example` to `.env.local`, set `AI_MODE=live`, and add an `OPENAI_API_KEY`. If a request fails (e.g. a network/proxy block) it falls back to offline mode automatically. In live mode, each reply shows its token usage and estimated cost.
+- **Live mode** — for full conversational answers, copy `.env.example` to `.env.local`, set `AI_MODE=live`, and add an `OPENAI_API_KEY`. If a request fails (e.g. a network/proxy block) it falls back to offline mode automatically. A Live/Offline badge in the assistant header shows the current mode.
 
 ## CI integration (CLI)
 

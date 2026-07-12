@@ -16,38 +16,18 @@
 
 import { renderMock } from "@/lib/ai/mock";
 import { buildMessages } from "@/lib/ai/prompt";
-import type { AiRequest, AiResponse, AiUsage } from "@/lib/ai/types";
+import type { AiRequest, AiResponse } from "@/lib/ai/types";
 
 // Route Handlers aren't cached for POST; make the intent explicit anyway.
 export const dynamic = "force-dynamic";
 
 const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
 
-// Approximate USD per 1,000,000 tokens. These change over time — VERIFY against
-// https://openai.com/api/pricing, or override with OPENAI_PRICE_IN /
-// OPENAI_PRICE_OUT (USD per 1M tokens). Token counts come straight from the API
-// response, so only the rate is an estimate.
-const PRICING: Record<string, { in: number; out: number }> = {
-  "gpt-4o-mini": { in: 0.15, out: 0.6 },
-  "gpt-4o": { in: 2.5, out: 10 },
-  "gpt-4.1-mini": { in: 0.4, out: 1.6 },
-  "gpt-4.1": { in: 2.0, out: 8.0 },
-};
-
-function rateFor(model: string): { in: number; out: number } {
-  const envIn = Number(process.env.OPENAI_PRICE_IN);
-  const envOut = Number(process.env.OPENAI_PRICE_OUT);
-  if (Number.isFinite(envIn) && Number.isFinite(envOut)) {
-    return { in: envIn, out: envOut };
-  }
-  return PRICING[model] ?? { in: 0, out: 0 };
-}
-
 function isLive(): boolean {
   return process.env.AI_MODE === "live" && Boolean(process.env.OPENAI_API_KEY);
 }
 
-async function callOpenAI(req: AiRequest): Promise<{ text: string; usage: AiUsage }> {
+async function callOpenAI(req: AiRequest): Promise<{ text: string }> {
   const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
   const res = await fetch(OPENAI_URL, {
     method: "POST",
@@ -69,23 +49,7 @@ async function callOpenAI(req: AiRequest): Promise<{ text: string; usage: AiUsag
   const data = await res.json();
   const text = data?.choices?.[0]?.message?.content?.trim();
   if (!text) throw new Error("OpenAI returned no content");
-
-  const promptTokens = data?.usage?.prompt_tokens ?? 0;
-  const completionTokens = data?.usage?.completion_tokens ?? 0;
-  const rate = rateFor(model);
-  const estimatedCostUsd =
-    (promptTokens / 1_000_000) * rate.in + (completionTokens / 1_000_000) * rate.out;
-
-  return {
-    text,
-    usage: {
-      model,
-      promptTokens,
-      completionTokens,
-      totalTokens: data?.usage?.total_tokens ?? promptTokens + completionTokens,
-      estimatedCostUsd,
-    },
-  };
+  return { text };
 }
 
 function isValidRequest(body: unknown): body is AiRequest {
@@ -117,8 +81,8 @@ export async function POST(request: Request): Promise<Response> {
   // Live path first; on any error, fall through to the deterministic mock.
   if (isLive()) {
     try {
-      const { text, usage } = await callOpenAI(body);
-      return Response.json({ text, mode: "live", usage } satisfies AiResponse);
+      const { text } = await callOpenAI(body);
+      return Response.json({ text, mode: "live" } satisfies AiResponse);
     } catch (err) {
       // Degrade to mock, but log WHY so a live-mode test is diagnosable
       // (bad key = 401, blocked/no proxy = ENOTFOUND/ECONNREFUSED/timeout,

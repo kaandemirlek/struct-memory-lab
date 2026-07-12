@@ -10,6 +10,7 @@
 // ============================================================================
 
 import type { AiRequest, StructContext } from "./types";
+import { HOWTOS } from "./appGuide";
 
 const bytes = (n: number) => `${n} byte${n === 1 ? "" : "s"}`;
 
@@ -41,6 +42,29 @@ function describeAlignment(c: StructContext): string {
     `"${c.name}" is aligned to ${bytes(c.alignment)} — that's the largest alignment of any field. ` +
     `The whole struct's size is rounded up to a multiple of that so arrays of it stay aligned.`
   );
+}
+
+function describeBits(c: StructContext): string {
+  const withBits = c.fields.filter((f) => f.bitFields && f.bitFields.length > 0);
+  if (withBits.length === 0) {
+    return (
+      "No Status Bits are defined yet. In the Memory Layout, click an unsigned-integer " +
+      "field, then use the Status Bits panel to define flags/enums on its individual bits."
+    );
+  }
+  const parts = withBits.map((f) => {
+    const bits = f
+      .bitFields!.map((b) => {
+        const meanings =
+          b.meanings && b.meanings.length > 0
+            ? ` (${b.meanings.map((m) => `${m.value}=${m.label}`).join(", ")})`
+            : "";
+        return `${b.name} — ${b.bitRange}, ${b.kind}${meanings}`;
+      })
+      .join("; ");
+    return `"${f.name}": ${bits}`;
+  });
+  return `Status Bits defined — ${parts.join(" · ")}.`;
 }
 
 function describeFields(c: StructContext): string {
@@ -78,9 +102,29 @@ function describeChanges(c: StructContext): string {
 }
 
 const OFFLINE_HINT =
-  "I'm running offline, so I can answer questions about this struct's size, " +
-  "padding, alignment, fields, versions, and what changed between versions. " +
-  "For open-ended help, ask your team to enable live mode (AI_MODE=live).";
+  "I'm running offline, so I can answer questions about this struct (size, " +
+  "padding, alignment, fields, versions, what changed) and how to use this app " +
+  '(try "how do I add a nested struct?" or "how do I compare versions?"). ' +
+  "For open-ended help, enable live mode (AI_MODE=live).";
+
+// Bir soru "nasıl / nerede / bu ne yapar" gibi bir kullanım (how-to) sorusu mu?
+// Öyleyse önce uygulama rehberine (HOWTOS) bakarız; değilse veri intent'lerine.
+// Bu ayrım "en son versiyonda ne değişti" (veri) ile "versiyonları nasıl
+// karşılaştırırım" (how-to) sorularını birbirine karıştırmaz.
+const HOWISH = /\b(how|where|steps?|guide)\b/;
+const isHowish = (q: string): boolean =>
+  HOWISH.test(q) ||
+  ["what is", "what does", "what's", "whats", "can i", "do i", "where's"].some((p) =>
+    q.includes(p)
+  );
+
+/** Uygulama rehberinden (nasıl yapılır) eşleşen ilk yanıtı döndürür; yoksa null. */
+function matchHowTo(q: string): string | null {
+  for (const h of HOWTOS) {
+    if (h.keywords.some((k) => q.includes(k))) return h.answer;
+  }
+  return null;
+}
 
 /** Deterministic intent match on the latest user message. */
 export function mockChatReply(context: StructContext, lastUserMessage: string): string {
@@ -92,6 +136,10 @@ export function mockChatReply(context: StructContext, lastUserMessage: string): 
   const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const has = (...terms: string[]) =>
     terms.some((t) => new RegExp(`\\b${escapeRe(t)}\\b`).test(q));
+
+  // Nasıl/nerede tarzı sorularda önce uygulama rehberi (yoksa veri intent'lerine düşer).
+  const howto = matchHowTo(q);
+  if (howto && isHowish(q)) return howto;
 
   if (has("padding", "pad", "padded", "gap", "gaps", "wasted")) return describePadding(context);
   if (has("align", "aligned", "alignment")) return describeAlignment(context);
@@ -105,10 +153,14 @@ export function mockChatReply(context: StructContext, lastUserMessage: string): 
   )
     return describeChanges(context);
   if (has("version", "versions", "snapshot", "snapshots", "history")) return describeVersions(context);
+  if (has("bit", "bits", "flag", "flags", "status word", "status bits")) return describeBits(context);
   if (has("field", "fields", "how many", "member", "members", "list")) return describeFields(context);
   if (has("hi", "hello", "hey", "help", "what can you")) {
     return `Hi! ${describeSize(context)} ${OFFLINE_HINT}`;
   }
+
+  // Veri intent'i tutmadı ama bir how-to eşleşmesi varsa (howish olmasa bile) onu ver.
+  if (howto) return howto;
 
   // Unknown intent — stay honest and give a quick snapshot to be useful anyway.
   return `${OFFLINE_HINT}\n\nRight now: ${describeSize(context)}`;

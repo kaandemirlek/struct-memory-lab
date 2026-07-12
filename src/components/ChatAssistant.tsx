@@ -4,21 +4,18 @@ import { useEffect, useRef, useState } from "react";
 import { useStructStore, resolveComparison } from "@/store/useStructStore";
 import { askAI } from "@/lib/ai/client";
 import { buildStructContext } from "@/lib/ai/context";
-import type { ChatMessage, AiUsage } from "@/lib/ai/types";
+import type { ChatMessage } from "@/lib/ai/types";
 import Button from "@/components/ui/Button";
 import { SparklesIcon, CloseIcon, SendIcon } from "@/components/ui/icons";
 
 const SUGGESTIONS = [
   "How big is this struct?",
   "Why is there padding?",
-  "What changed in the latest version?",
-  "How many fields are there?",
+  "How do I add a nested struct?",
+  "How do I compare two versions?",
 ];
 
-/** A rendered turn; assistant turns may carry live-mode token usage. */
-type ChatEntry = ChatMessage & { usage?: AiUsage };
-
-const fmtCost = (n: number) => `$${n < 0.01 ? n.toFixed(6) : n.toFixed(4)}`;
+type ChatEntry = ChatMessage;
 
 export default function ChatAssistant() {
   const model = useStructStore((s) => s.currentModel);
@@ -33,18 +30,6 @@ export default function ChatAssistant() {
   const [status, setStatus] = useState<"idle" | "loading">("idle");
   const [mode, setMode] = useState<"mock" | "live" | null>(null);
 
-  // Running session cost/tokens across all live replies.
-  const session = messages.reduce(
-    (acc, m) => {
-      if (m.usage) {
-        acc.cost += m.usage.estimatedCostUsd;
-        acc.tokens += m.usage.totalTokens;
-      }
-      return acc;
-    },
-    { cost: 0, tokens: 0 }
-  );
-
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -58,6 +43,14 @@ export default function ChatAssistant() {
     if (open) inputRef.current?.focus();
   }, [open]);
 
+  // Sohbeti başlangıç durumuna döndürür (başlangıç önerileri yeniden görünür).
+  const resetChat = () => {
+    setMessages([]);
+    setMode(null);
+    setInput("");
+    inputRef.current?.focus();
+  };
+
   const send = async (raw?: string) => {
     const text = (raw ?? input).trim();
     if (!text || status === "loading") return;
@@ -70,13 +63,12 @@ export default function ChatAssistant() {
     try {
       const cmp = resolveComparison(versions, model, baseVersionId, targetVersionId);
       const context = buildStructContext(model, versions, cmp, platform);
-      // Send only role/content to the API — usage is display-only.
       const apiMessages: ChatMessage[] = nextMessages.map(({ role, content }) => ({
         role,
         content,
       }));
       const res = await askAI({ kind: "chat", payload: { messages: apiMessages, context } });
-      setMessages((m) => [...m, { role: "assistant", content: res.text, usage: res.usage }]);
+      setMessages((m) => [...m, { role: "assistant", content: res.text }]);
       setMode(res.mode);
     } catch {
       setMessages((m) => [
@@ -125,13 +117,17 @@ export default function ChatAssistant() {
               )}
             </span>
             <div className="flex items-center gap-2">
-              {session.tokens > 0 && (
-                <span
-                  title={`${session.tokens} tokens this session (estimated)`}
-                  className="text-[10px] tabular-nums text-muted"
+              {messages.length > 0 && (
+                <button
+                  type="button"
+                  onClick={resetChat}
+                  disabled={status === "loading"}
+                  aria-label="New chat"
+                  title="New chat"
+                  className="rounded-md border border-border px-2 py-0.5 text-[11px] font-medium text-muted transition-colors hover:bg-surface-muted hover:text-foreground disabled:opacity-40"
                 >
-                  Session ~{fmtCost(session.cost)}
-                </span>
+                  New chat
+                </button>
               )}
               <button
                 type="button"
@@ -180,12 +176,6 @@ export default function ChatAssistant() {
                   >
                     {m.content}
                   </p>
-                  {m.role === "assistant" && m.usage && (
-                    <span className="mt-1 text-[10px] tabular-nums text-muted">
-                      {m.usage.promptTokens} in · {m.usage.completionTokens} out · ~
-                      {fmtCost(m.usage.estimatedCostUsd)}
-                    </span>
-                  )}
                 </div>
               ))
             )}

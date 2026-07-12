@@ -13,6 +13,21 @@ export interface ChatMessage {
   content: string;
 }
 
+/** A semantic bit range defined on an unsigned-integer field (Status Bits). */
+export interface ContextBitField {
+  name: string;
+  /** Which word/array element (0 for a single field). */
+  wordIndex: number;
+  startBit: number;
+  width: number;
+  /** Human-readable range, e.g. "bit 16" or "bits 16–19" (with "word N" for arrays). */
+  bitRange: string;
+  /** flag | uint | int | enum. */
+  kind: string;
+  /** Value → label meanings, e.g. [{value:0,label:"OK"},{value:1,label:"FAIL"}]. */
+  meanings?: { value: number; label: string }[];
+}
+
 /** A field as the assistant sees it (already computed by the engine). */
 export interface ContextField {
   name: string;
@@ -22,6 +37,8 @@ export interface ContextField {
   size: number;
   /** Padding bytes inserted before this field for alignment. */
   paddingBefore: number;
+  /** Status Bits defined on this field (only for unsigned-integer fields). */
+  bitFields?: ContextBitField[];
 }
 
 /** The active From→To comparison, when one is selected. */
@@ -62,21 +79,9 @@ export type AiRequest = {
 /** Which AI feature a request targets. */
 export type AiKind = AiRequest["kind"];
 
-/** Token usage + estimated price for a live call (absent in mock mode). */
-export interface AiUsage {
-  model: string;
-  promptTokens: number;
-  completionTokens: number;
-  totalTokens: number;
-  /** Estimated cost in USD from token counts × configured rates. */
-  estimatedCostUsd: number;
-}
-
 export interface AiResponse {
   /** Plain-language reply to show the user. */
   text: string;
   /** Whether this came from the live model or the deterministic mock. */
   mode: "mock" | "live";
-  /** Present only for live responses. */
-  usage?: AiUsage;
 }

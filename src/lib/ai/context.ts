@@ -10,9 +10,32 @@ import { computeLayout } from "@/engine/layout";
 import { diffVersions } from "@/engine/diff";
 import { generateCompatibilityReport } from "@/engine/compatibility";
 import type { ResolvedComparison } from "@/store/useStructStore";
-import type { Platform, StructModel, Version } from "@/types";
+import type { Field, Platform, StructModel, Version } from "@/types";
 import { DEFAULT_PLATFORM } from "@/types";
-import type { ContextField, StructContext } from "./types";
+import type { ContextBitField, ContextField, StructContext } from "./types";
+
+/** Field.bitFields → grounding shape, with a human-readable bit range. */
+function toContextBits(field: Field): ContextBitField[] | undefined {
+  const bits = field.bitFields;
+  if (!bits || bits.length === 0) return undefined;
+  const isArray = field.arrayLength > 1;
+  return bits.map((b) => {
+    const end = b.startBit + b.width - 1;
+    const range = b.width === 1 ? `bit ${b.startBit}` : `bits ${b.startBit}–${end}`;
+    return {
+      name: b.name,
+      wordIndex: b.wordIndex,
+      startBit: b.startBit,
+      width: b.width,
+      bitRange: isArray ? `word ${b.wordIndex}, ${range}` : range,
+      kind: b.kind ?? (b.width === 1 ? "flag" : "uint"),
+      meanings:
+        b.meanings && b.meanings.length > 0
+          ? b.meanings.map((m) => ({ value: m.value, label: m.label }))
+          : undefined,
+    };
+  });
+}
 
 export function buildStructContext(
   model: StructModel,
@@ -21,16 +44,20 @@ export function buildStructContext(
   platform: Platform = DEFAULT_PLATFORM
 ): StructContext {
   const layout = computeLayout(model, platform);
-  const arrayLenById = new Map(model.fields.map((f) => [f.id, f.arrayLength]));
+  const modelById = new Map(model.fields.map((f) => [f.id, f]));
 
-  const fields: ContextField[] = layout.fields.map((fl) => ({
-    name: fl.name,
-    type: fl.type,
-    arrayLength: arrayLenById.get(fl.fieldId) ?? 1,
-    offset: fl.offset,
-    size: fl.size,
-    paddingBefore: fl.paddingBefore,
-  }));
+  const fields: ContextField[] = layout.fields.map((fl) => {
+    const mf = modelById.get(fl.fieldId);
+    return {
+      name: fl.name,
+      type: fl.type,
+      arrayLength: mf?.arrayLength ?? 1,
+      offset: fl.offset,
+      size: fl.size,
+      paddingBefore: fl.paddingBefore,
+      bitFields: mf ? toContextBits(mf) : undefined,
+    };
+  });
 
   let comparison: StructContext["comparison"] = null;
   if (cmp.fromModel && cmp.toModel && cmp.fromValue !== cmp.toValue) {

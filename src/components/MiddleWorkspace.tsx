@@ -30,7 +30,7 @@ export default function MiddleWorkspace({
             key={item.id}
             type="button"
             onClick={() => onTabChange(item.id)}
-            className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+            className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
               tab === item.id
                 ? "bg-accent text-accent-foreground"
                 : "text-muted hover:bg-surface-muted hover:text-foreground"

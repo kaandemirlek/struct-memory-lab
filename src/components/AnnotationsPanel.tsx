@@ -59,8 +59,20 @@ export default function AnnotationsPanel() {
   return (
     <Panel
       title="Notes"
-      description="Leave a note on a field or version — e.g. “don't move this, the serializer depends on the offset.”"
+      collapsible
+      defaultOpen={false}
+      summary={
+        <span className="text-muted">
+          {annotations.length === 0
+            ? "no notes"
+            : `${annotations.length} ${annotations.length === 1 ? "note" : "notes"}`}
+        </span>
+      }
     >
+      <p className="mb-3 text-xs text-muted">
+        Leave a note on a field or version — e.g. “don&apos;t move this, the
+        serializer depends on the offset.”
+      </p>
       {options.length === 0 ? (
         <p className="text-sm text-muted">Add a field or save a version to attach notes.</p>
       ) : (

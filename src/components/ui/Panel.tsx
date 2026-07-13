@@ -1,23 +1,17 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import { ChevronRightIcon } from "./icons";
 
 function Chevron({ open }: { open: boolean }) {
   return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
+    <ChevronRightIcon
+      width={14}
+      height={14}
       strokeWidth={2.5}
-      strokeLinecap="round"
-      strokeLinejoin="round"
       className={`shrink-0 text-muted transition-transform ${open ? "rotate-90" : ""}`}
       aria-hidden
-    >
-      <path d="M9 6l6 6-6 6" />
-    </svg>
+    />
   );
 }
 
@@ -62,7 +56,7 @@ export default function Panel({
       >
         <div className="mb-4 flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h2 className="text-sm font-semibold tracking-tight">{title}</h2>
+            <h2 className="text-base font-semibold tracking-tight">{title}</h2>
             {description && (
               <p className="mt-0.5 break-words text-xs text-muted">{description}</p>
             )}
@@ -83,7 +77,7 @@ export default function Panel({
           aria-expanded={open}
         >
           <Chevron open={open} />
-          <h2 className="shrink-0 text-sm font-semibold tracking-tight">{title}</h2>
+          <h2 className="shrink-0 text-base font-semibold tracking-tight">{title}</h2>
           {summary && <span className="min-w-0 truncate text-xs">{summary}</span>}
         </button>
         {actions && <div className="flex shrink-0 gap-2">{actions}</div>}

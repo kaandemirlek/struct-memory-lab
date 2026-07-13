@@ -43,11 +43,12 @@ function removeFieldById(fields: Field[], id: string): Field[] {
     );
 }
 
-// Uygulama açılışında gösterilecek örnek struct.
+// Uygulama açılışında gösterilecek örnek struct. Boş bir struct'a düşüldüğünde
+// "Load example" ile geri yüklenebilsin diye dışa aktarılır.
 // ÖNEMLİ: başlangıç id'leri SABİT olmalı. makeId() Date.now() kullandığı için
 // sunucu ve tarayıcıda farklı değer üretir → hydration uyuşmazlığı. Çalışma
 // anında (client'ta) eklenen alanlar makeId() kullanabilir, sorun değil.
-const initialModel: StructModel = {
+export const EXAMPLE_MODEL: StructModel = {
   name: "Player",
   fields: [
     { id: "f_id", name: "id", type: "uint32_t", arrayLength: 1 },
@@ -180,7 +181,7 @@ export const useStructStore = create<StructState>()(
         }));
 
       return {
-        currentModel: initialModel,
+        currentModel: EXAMPLE_MODEL,
         versions: [],
         annotations: [],
         platform: DEFAULT_PLATFORM,

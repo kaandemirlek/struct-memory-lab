@@ -49,6 +49,53 @@ function VersionChangeSummary({ prev, curr }: { prev?: Version; curr: Version })
   return <>{parts}</>;
 }
 
+// Karşılaştırma hedefi seçimi — gizli sağ-tık jesti yerine görünür From/To düğmeleri.
+function FromToButtons({
+  label,
+  isFrom,
+  isTo,
+  onFrom,
+  onTo,
+}: {
+  label: string;
+  isFrom: boolean;
+  isTo: boolean;
+  onFrom: () => void;
+  onTo: () => void;
+}) {
+  return (
+    <span className="flex shrink-0 self-center overflow-hidden rounded-md border border-border">
+      <button
+        type="button"
+        onClick={onFrom}
+        aria-pressed={isFrom}
+        title={`Compare from ${label}`}
+        className={`px-1.5 py-1 text-[10px] font-semibold uppercase leading-none transition-colors ${
+          isFrom
+            ? "bg-accent/15 text-accent"
+            : "text-muted hover:bg-surface-muted hover:text-foreground"
+        }`}
+      >
+        From
+      </button>
+      <span className="w-px self-stretch bg-border" aria-hidden />
+      <button
+        type="button"
+        onClick={onTo}
+        aria-pressed={isTo}
+        title={`Compare to ${label}`}
+        className={`px-1.5 py-1 text-[10px] font-semibold uppercase leading-none transition-colors ${
+          isTo
+            ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+            : "text-muted hover:bg-surface-muted hover:text-foreground"
+        }`}
+      >
+        To
+      </button>
+    </span>
+  );
+}
+
 function LiveCard({
   model,
   active,
@@ -189,19 +236,7 @@ export default function VersionPanel({
               return (
                 <li
                   key={v.id}
-                  onClick={isEditing ? undefined : () => setBaseVersion(v.id)}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    if (!isEditing) setTargetVersion(v.id);
-                  }}
-                  title={
-                    isEditing
-                      ? undefined
-                      : "Left-click: From. Right-click: To. Double-click: rename."
-                  }
                   className={`rounded-lg border p-2.5 transition-colors ${
-                    isEditing ? "" : "cursor-pointer hover:border-accent/50"
-                  } ${
                     isFrom
                       ? "border-accent bg-accent/10"
                       : isTo
@@ -237,33 +272,12 @@ export default function VersionPanel({
                     </div>
                   ) : (
                     <div className="flex items-start justify-between gap-2">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setBaseVersion(v.id);
-                        }}
-                        onDoubleClick={(e) => {
-                          e.stopPropagation();
-                          startEdit(v.id, v.label);
-                        }}
-                        className="block min-w-0 flex-1 text-left"
-                        title="Left-click: From. Right-click row: To. Double-click: rename."
+                      <div
+                        onDoubleClick={() => startEdit(v.id, v.label)}
+                        className="min-w-0 flex-1"
                       >
-                        <span className="flex min-w-0 items-center gap-2">
-                          <span className="min-w-0 truncate text-sm font-semibold">
-                            {v.label}
-                          </span>
-                          {isFrom && (
-                            <span className="shrink-0 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-accent">
-                              From
-                            </span>
-                          )}
-                          {isTo && (
-                            <span className="shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-emerald-600 dark:text-emerald-400">
-                              To
-                            </span>
-                          )}
+                        <span className="block min-w-0 truncate text-sm font-semibold">
+                          {v.label}
                         </span>
                         <span
                           className="mt-0.5 block text-xs text-muted"
@@ -271,17 +285,21 @@ export default function VersionPanel({
                         >
                           {v.model.fields.length} fields - {timeAgo(v.createdAt)}
                         </span>
-                      </button>
+                      </div>
+                      <FromToButtons
+                        label={v.label}
+                        isFrom={isFrom}
+                        isTo={isTo}
+                        onFrom={() => setBaseVersion(v.id)}
+                        onTo={() => setTargetVersion(v.id)}
+                      />
                       <Button
                         variant="ghost"
                         size="icon"
                         className="text-muted hover:text-foreground"
                         aria-label="Rename this version"
                         title="Rename"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          startEdit(v.id, v.label);
-                        }}
+                        onClick={() => startEdit(v.id, v.label)}
                       >
                         <PencilIcon />
                       </Button>
@@ -292,46 +310,32 @@ export default function VersionPanel({
             })}
 
             <li
-              role="button"
-              tabIndex={0}
-              onClick={() => setBaseVersion(CURRENT_EDITS)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  setBaseVersion(CURRENT_EDITS);
-                }
-              }}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                setTargetVersion(null);
-              }}
-              title="Live working state. Left-click: From. Right-click: To."
-              className={`cursor-pointer rounded-lg border border-dashed p-2.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+              title="Live working state (unsaved edits)."
+              className={`rounded-lg border border-dashed p-2.5 transition-colors ${
                 isCurrentFrom
                   ? "border-accent bg-accent/10"
                   : isCurrentTo
                     ? "border-emerald-500/50 bg-emerald-500/10"
-                    : "border-border hover:border-accent/50"
+                    : "border-border"
               }`}
             >
-              <span className="flex min-w-0 items-center gap-2">
-                <span className="min-w-0 truncate text-sm font-semibold">
-                  {CURRENT_EDITS_LABEL}
-                </span>
-                {isCurrentFrom && (
-                  <span className="shrink-0 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-accent">
-                    From
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <span className="block min-w-0 truncate text-sm font-semibold">
+                    {CURRENT_EDITS_LABEL}
                   </span>
-                )}
-                {isCurrentTo && (
-                  <span className="shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-emerald-600 dark:text-emerald-400">
-                    To
+                  <span className="mt-0.5 block text-xs text-muted">
+                    {current.fields.length} fields - unsaved
                   </span>
-                )}
-              </span>
-              <span className="mt-0.5 block text-xs text-muted">
-                {current.fields.length} fields - unsaved
-              </span>
+                </div>
+                <FromToButtons
+                  label={CURRENT_EDITS_LABEL}
+                  isFrom={isCurrentFrom}
+                  isTo={isCurrentTo}
+                  onFrom={() => setBaseVersion(CURRENT_EDITS)}
+                  onTo={() => setTargetVersion(null)}
+                />
+              </div>
             </li>
           </ul>
         )}

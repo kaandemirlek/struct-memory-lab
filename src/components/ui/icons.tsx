@@ -12,6 +12,15 @@ const base: SVGProps<SVGSVGElement> = {
   strokeLinejoin: "round",
 };
 
+/** Chevron pointing right — expand/collapse affordance (rotate for open state). */
+export function ChevronRightIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d="m9 6 6 6-6 6" />
+    </svg>
+  );
+}
+
 /** Clock with a counter-clockwise arrow — restore a previous state. */
 export function RestoreIcon(props: SVGProps<SVGSVGElement>) {
   return (

@@ -301,6 +301,54 @@ describe("useStructStore — bit field actions", () => {
     expect(bits()[0].id).not.toBe(id);
   });
 
+  it("moveBitField bir biti BAŞKA alana taşır (ad/kind/meanings korunur, tek undo adımı)", () => {
+    useStructStore.setState({
+      currentModel: {
+        name: "StatusPacket",
+        fields: [
+          { id: "sw", name: "statusWords", type: "uint32_t", arrayLength: 3, bitFields: [] },
+          { id: "flags", name: "flags", type: "uint8_t", arrayLength: 1, bitFields: [] },
+        ],
+      },
+      past: [],
+      future: [],
+    });
+    get().addBitField("sw", { wordIndex: 1, startBit: 4, width: 3 });
+    const bit = bits()[0];
+    get().updateBitField("sw", bit.id, {
+      name: "mode",
+      kind: "enum",
+      meanings: [{ value: 0, label: "IDLE" }],
+    });
+
+    get().moveBitField("sw", bit.id, "flags", { wordIndex: 0, startBit: 2, width: 3 });
+
+    // Kaynaktan silindi, hedefe kimliği ve semantiğiyle taşındı.
+    expect(bits()).toHaveLength(0);
+    const target = get().currentModel.fields[1].bitFields!;
+    expect(target).toHaveLength(1);
+    expect(target[0]).toMatchObject({
+      id: bit.id,
+      name: "mode",
+      kind: "enum",
+      wordIndex: 0,
+      startBit: 2,
+      width: 3,
+    });
+    expect(target[0].meanings).toEqual([{ value: 0, label: "IDLE" }]);
+
+    // Tek undo adımı: geri alınca bit kaynağa döner.
+    get().undo();
+    expect(get().currentModel.fields[0].bitFields).toHaveLength(1);
+    expect(get().currentModel.fields[1].bitFields).toHaveLength(0);
+  });
+
+  it("moveBitField bilinmeyen bit id'sinde modele dokunmaz", () => {
+    const before = get().currentModel;
+    get().moveBitField("sw", "yok-boyle-bit", "sw", { wordIndex: 0, startBit: 0, width: 1 });
+    expect(get().currentModel).toEqual(before);
+  });
+
   it("nested struct içindeki alanın bit'lerini de düzenler (özyinelemeli)", () => {
     useStructStore.setState({
       currentModel: {

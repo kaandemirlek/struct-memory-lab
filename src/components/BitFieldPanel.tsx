@@ -1,6 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
+import { createPortal } from "react-dom";
 import { useStructStore } from "@/store/useStructStore";
 import {
   bitsPerWord,
@@ -33,6 +41,34 @@ type Interaction =
 
 const inputClass =
   "min-w-0 rounded-lg border border-border bg-surface-muted px-2 py-1.5 text-xs outline-none focus:border-accent";
+
+// ---------------------------------------------------------------------------
+// Alanlar ARASI bit taşıma. Kaynak WordEditor (pointer capture'ı tutan) sürükleme
+// sırasında hedefi yazar; hedef alanın WordEditor'ı hayaleti çizer. Bırakınca
+// kaynak, store'daki moveBitField ile biti tek undo adımında taşır.
+// ---------------------------------------------------------------------------
+type CrossDrag = {
+  sourceFieldId: string;
+  bit: BitField;
+  targetFieldId: string;
+  draft: Draft;
+  valid: boolean;
+};
+
+const CrossDragContext = createContext<{
+  cross: CrossDrag | null;
+  setCross: (c: CrossDrag | null) => void;
+  /** Ağaçtaki (nested dahil) tüm alanlar — hedef alanın word genişliği/çakışması için. */
+  fieldsById: Map<string, Field>;
+}>({ cross: null, setCross: () => {}, fieldsById: new Map() });
+
+function collectFieldsById(fields: Field[], map = new Map<string, Field>()): Map<string, Field> {
+  for (const f of fields) {
+    map.set(f.id, f);
+    if (f.nested) collectFieldsById(f.nested.fields, map);
+  }
+  return map;
+}
 
 function colorFor(id: string): string {
   let hash = 0;
@@ -222,8 +258,21 @@ function WordEditor({
   const bits = (field.bitFields ?? []).filter((bit) => bit.wordIndex === wordIndex);
   const addBitField = useStructStore((s) => s.addBitField);
   const updateBitField = useStructStore((s) => s.updateBitField);
+  const moveBitField = useStructStore((s) => s.moveBitField);
+  const { cross, setCross, fieldsById } = useContext(CrossDragContext);
   const gridRef = useRef<HTMLDivElement>(null);
   const [interaction, setInteraction] = useState<Interaction | null>(null);
+  // Kendi grid'imizin DIŞINDA sürüklerken (alanlar arası yolculuk) taşınan bit,
+  // imlece yapışık bir hayalet olarak gösterilir — "elinde taşıma" hissi.
+  const [dragPointer, setDragPointer] = useState<{ x: number; y: number } | null>(null);
+  // Grid dışındaki kopya hem kaynak ölçüsünü hem de kullanıcının bloğu tuttuğu
+  // noktayı korur. Böylece imleç bir anda bloğun sol üst köşesine sıçramaz.
+  const [dragVisual, setDragVisual] = useState<{
+    width: number;
+    height: number;
+    grabX: number;
+    grabY: number;
+  } | null>(null);
 
   const shownBits = bits.map((bit) => {
     if (
@@ -243,6 +292,15 @@ function WordEditor({
     event.preventDefault();
     event.stopPropagation();
     event.currentTarget.setPointerCapture(event.pointerId);
+    if (next.kind === "move") {
+      const rect = event.currentTarget.getBoundingClientRect();
+      setDragVisual({
+        width: rect.width,
+        height: rect.height,
+        grabX: event.clientX - rect.left,
+        grabY: event.clientY - rect.top,
+      });
+    }
     setInteraction(next);
   };
 
@@ -257,11 +315,70 @@ function WordEditor({
       const underneath = document
         .elementsFromPoint(event.clientX, event.clientY)
         .map((element) => element.closest<HTMLElement>("[data-word-grid]"))
-        .find((element) => element?.dataset.fieldId === field.id);
-      if (underneath) {
-        targetGrid = underneath;
-        targetWord = Number(underneath.dataset.wordGrid);
+        .find((element): element is HTMLElement => !!element);
+
+      // Hiçbir grid'in üzerinde değiliz (paneller arası boşluk) → taslak son
+      // hedef preview'ı kapanır ve kaynak bit başlangıç konumuna döner. İmleçteki
+      // serbest taşıma kopyası görünmeye devam eder; burada bırakılırsa değişmez.
+      if (!underneath) {
+        setDragPointer({ x: event.clientX, y: event.clientY });
+        if (cross) setCross(null);
+        setInteraction({
+          ...interaction,
+          draft: {
+            wordIndex: interaction.bit.wordIndex,
+            startBit: interaction.bit.startBit,
+            width: interaction.bit.width,
+          },
+        });
+        return;
       }
+
+      const targetFieldId = underneath.dataset.fieldId ?? "";
+      const targetWordIndex = Number(underneath.dataset.wordGrid);
+      const movesToAnotherWord =
+        targetFieldId !== field.id || targetWordIndex !== interaction.bit.wordIndex;
+
+      // Başka bir field'a VEYA aynı field'ın başka word'üne geçtik: kaynak blok
+      // yerinde soluk kalır, hedef grid yeni konumu mouse bırakılmadan gösterir.
+      if (movesToAnotherWord) {
+        setDragPointer(null);
+        const targetField = fieldsById.get(targetFieldId);
+        if (targetField && isUnsignedInt(targetField.type)) {
+          const targetBits = bitsPerWord(targetField);
+          const targetOrder = (underneath.dataset.order as BitOrder) ?? "lsb";
+          const pointer = bitAtPointer(underneath, event.clientX, targetBits, targetOrder);
+          // Bloğun tutulduğu bit ofsetini koru (kaynaktaki kavrama hissi).
+          const grab = interaction.pointerBit - interaction.bit.startBit;
+          const width = interaction.bit.width;
+          const startBit = Math.max(0, Math.min(targetBits - width, pointer - grab));
+          const draft: Draft = { wordIndex: targetWordIndex, startBit, width };
+          setCross({
+            sourceFieldId: field.id,
+            bit: interaction.bit,
+            targetFieldId: targetField.id,
+            draft,
+            valid:
+              width <= targetBits &&
+              canPlace(targetField, draft, targetField.id === field.id ? interaction.bit.id : undefined),
+          });
+          setInteraction({
+            ...interaction,
+            draft: {
+              wordIndex: interaction.bit.wordIndex,
+              startBit: interaction.bit.startBit,
+              width,
+            },
+          });
+        }
+        return;
+      }
+
+      // Kendi alanımızın grid'indeyiz → imleç hayaleti kapanır, normal yol işler.
+      setDragPointer(null);
+      if (cross) setCross(null);
+      targetGrid = underneath;
+      targetWord = Number(underneath.dataset.wordGrid);
     }
 
     const pointerBit = bitAtPointer(targetGrid, event.clientX, bitCount, order);
@@ -311,6 +428,20 @@ function WordEditor({
 
   const finishInteraction = () => {
     if (!interaction) return;
+    setDragPointer(null);
+    setDragVisual(null);
+
+    // Alanlar-arası bırakma: geçerliyse biti hedef alana taşı (tek undo adımı).
+    if (interaction.kind === "move" && cross && cross.sourceFieldId === field.id) {
+      if (cross.valid) {
+        moveBitField(field.id, interaction.bit.id, cross.targetFieldId, cross.draft);
+        onSelect(null); // bit artık başka alanın editöründe
+      }
+      setCross(null);
+      setInteraction(null);
+      return;
+    }
+
     const ignoredId = interaction.kind === "create" ? undefined : interaction.bit.id;
     if (canPlace(field, interaction.draft, ignoredId)) {
       if (interaction.kind === "create") {
@@ -373,10 +504,16 @@ function WordEditor({
             ref={gridRef}
             data-word-grid={wordIndex}
             data-field-id={field.id}
+            data-order={order}
             onPointerDown={createFromCell}
             onPointerMove={updateInteraction}
             onPointerUp={finishInteraction}
-            onPointerCancel={() => setInteraction(null)}
+            onPointerCancel={() => {
+              setInteraction(null);
+              setCross(null);
+              setDragPointer(null);
+              setDragVisual(null);
+            }}
             className="relative h-14 touch-none select-none overflow-hidden rounded-lg border border-border bg-surface"
             style={{
               backgroundImage: `repeating-linear-gradient(to right, transparent 0, transparent calc(${100 / bitCount}% - 1px), var(--border) calc(${100 / bitCount}% - 1px), var(--border) ${100 / bitCount}%)`,
@@ -386,12 +523,17 @@ function WordEditor({
               const isActive =
                 interaction?.kind !== "create" && interaction?.bit.id === bit.id;
               const valid = !isActive || draftValid;
+              // Alanlar-arası sürükleme / grid dışı yolculuk sürerken kaynak blok
+              // yerinde soluk bekler (kopyası imleçte taşınır).
+              const crossing =
+                isActive && (cross?.sourceFieldId === field.id || dragPointer !== null);
               return (
                 <div
                   key={bit.id}
                   style={{
                     ...visualStyle(bit),
                     background: colorFor(bit.id),
+                    opacity: crossing ? 0.35 : undefined,
                     boxShadow: !valid
                       ? "inset 0 0 0 2px var(--danger)"
                       : selectedId === bit.id
@@ -463,10 +605,51 @@ function WordEditor({
                 className="pointer-events-none absolute inset-y-1 rounded-md border-2 border-dashed border-white/70"
               />
             )}
+
+            {/* Başka bir alandan buraya sürüklenen bitin hayaleti (bırakınca taşınır). */}
+            {cross && cross.targetFieldId === field.id && cross.draft.wordIndex === wordIndex && (
+              <div
+                style={{
+                  ...visualStyle(cross.draft),
+                  background: colorFor(cross.bit.id),
+                  boxShadow: cross.valid
+                    ? undefined
+                    : "inset 0 0 0 2px var(--danger)",
+                }}
+                className="pointer-events-none absolute inset-y-1 flex items-center justify-center overflow-hidden rounded-md border-2 border-dashed border-white/70 px-2 text-[11px] font-semibold text-slate-950"
+              >
+                <span className="truncate">{cross.bit.name}</span>
+              </div>
+            )}
           </div>
         </div>
       </div>
-      <p className="mt-1.5 text-[10px] text-muted">Drag empty cells to create · drag blocks within or between words · pull edges to resize</p>
+
+      {/* Kendi grid'imizin dışında sürüklerken: taşınan bit imlece yapışık taşınır
+          (fixed konum, portal ile body'de — panel overflow'una takılmaz). */}
+      {interaction?.kind === "move" &&
+        dragPointer &&
+        dragVisual &&
+        createPortal(
+          <div
+            style={{
+              position: "fixed",
+              left: 0,
+              top: 0,
+              width: dragVisual.width,
+              height: dragVisual.height,
+              transform: `translate3d(${dragPointer.x - dragVisual.grabX}px, ${dragPointer.y - dragVisual.grabY}px, 0)`,
+              willChange: "transform",
+              background: colorFor(interaction.bit.id),
+              zIndex: 50,
+            }}
+            className="pointer-events-none flex items-center justify-center overflow-hidden rounded-md px-2 text-[11px] font-semibold text-slate-950 shadow-lg ring-1 ring-black/20"
+          >
+            <span className="truncate">{interaction.bit.name}</span>
+          </div>,
+          document.body
+        )}
+      <p className="mt-1.5 text-[10px] text-muted">Drag empty cells to create · drag blocks within or between words — even into another field · pull edges to resize</p>
     </div>
   );
 }
@@ -582,6 +765,9 @@ export default function BitFieldPanel() {
   const bitCapableCount = model.fields.filter(hasBitCapable).length;
   const anyBitCapable = bitCapableCount > 0;
   const [open, setOpen] = useState(false);
+  // Alanlar-arası bit sürükleme durumu (kaynak yazar, hedef hayalet çizer).
+  const [cross, setCross] = useState<CrossDrag | null>(null);
+  const fieldsById = collectFieldsById(model.fields);
 
   // Yerleşim bandında bir unsigned bloğa tıklanınca (store'daki odak değişince):
   // paneli aç ve ilgili editöre kaydır. Store aboneliği üzerinden dinlenir —
@@ -635,7 +821,9 @@ export default function BitFieldPanel() {
           </p>
         </div>
       ) : (
-        <FieldTree fields={model.fields} focusedId={focusedBitFieldId} />
+        <CrossDragContext.Provider value={{ cross, setCross, fieldsById }}>
+          <FieldTree fields={model.fields} focusedId={focusedBitFieldId} />
+        </CrossDragContext.Provider>
       )}
     </Panel>
   );

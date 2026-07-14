@@ -3,12 +3,16 @@
 import { Fragment, useCallback, useRef, useState, useSyncExternalStore } from "react";
 import {
   DndContext,
+  DragOverlay,
   closestCenter,
   PointerSensor,
   KeyboardSensor,
   useSensor,
   useSensors,
+  useDraggable,
+  useDroppable,
   type DragEndEvent,
+  type DragStartEvent,
 } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -414,25 +418,122 @@ function buildRows(
   return rows;
 }
 
+// Satır görünümünde tek bir alan parçası: sürüklenebilir VE bırakma hedefi.
+// Sıralama semantiği Strip ile aynıdır (alan A, alan B'nin sırasına taşınır);
+// yalnızca sürükleme yüzeyi farklıdır — parça satırlar arasında bölünmüş olabilir.
+function RowFieldChunk({
+  dragId,
+  fieldId,
+  activeFieldId,
+  style,
+  className,
+  title,
+  onClick,
+  children,
+}: {
+  dragId: string;
+  fieldId: string;
+  activeFieldId: string | null;
+  style: React.CSSProperties;
+  className: string;
+  title: string;
+  onClick?: () => void;
+  children: React.ReactNode;
+}) {
+  const { setNodeRef: setDragRef, attributes, listeners } = useDraggable({
+    id: dragId,
+    data: { fieldId },
+  });
+  const { setNodeRef: setDropRef, isOver, active } = useDroppable({
+    id: `drop:${dragId}`,
+    data: { fieldId },
+  });
+  const setRefs = (el: HTMLElement | null) => {
+    setDragRef(el);
+    setDropRef(el);
+  };
+  // Sürüklenen alanın TÜM parçaları soluklaşır; başka alanın parçası üzerine
+  // gelinince hedef parça vurgulanır (bırakınca o alanın sırasına geçilir).
+  const isSource = activeFieldId === fieldId;
+  const isTarget = isOver && active?.data.current?.fieldId !== fieldId;
+  return (
+    <div
+      ref={setRefs}
+      {...attributes}
+      {...listeners}
+      onClick={onClick}
+      data-drag-chunk={dragId}
+      style={style}
+      className={`${className} cursor-grab active:cursor-grabbing ${
+        isSource ? "opacity-50" : ""
+      } ${isTarget ? "ring-2 ring-inset ring-accent" : ""}`}
+      title={title}
+    >
+      {children}
+    </div>
+  );
+}
+
 function WrappedBand({
   layout,
   rowBytes,
   colorMap,
+  onReorder,
 }: {
   layout: LayoutResult;
   rowBytes: number;
   /** Canlı görünümde id-bazlı renkler; verilmezse segmentin colorIndex'i kullanılır. */
   colorMap?: Record<string, string>;
+  /** Verilirse parçalar sürüklenebilir olur: alan, bırakılan alanın sırasına taşınır. */
+  onReorder?: (fromFieldId: string, toFieldId: string) => void;
 }) {
   const segments = toSegments(layout);
   const rows = buildRows(segments, layout.totalSize, rowBytes);
   const pct = (bytes: number) => `${(bytes / rowBytes) * 100}%`;
+  // Sürükleme sırasında kaynak alan: parçaları soluklaştırmak + imleci takip eden
+  // overlay'de bloğun BİREBİR kopyasını (renk/boyut/etiket) çizmek için.
+  const [activeField, setActiveField] = useState<{
+    id: string;
+    name: string;
+    typeName: string;
+    color: string;
+    w: number;
+    h: number;
+  } | null>(null);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
+  );
+
+  const handleDragStart = (e: DragStartEvent) => {
+    const fieldId = e.active.data.current?.fieldId as string | undefined;
+    if (!fieldId) return;
+    const seg = segments.find((s) => s.fieldId === fieldId);
+    // Tutulan parçanın gerçek görünümünü yakala → overlay aynı blok gibi görünsün.
+    const el = document.querySelector<HTMLElement>(`[data-drag-chunk="${e.active.id}"]`);
+    const rect = el?.getBoundingClientRect();
+    setActiveField({
+      id: fieldId,
+      name: seg?.name ?? "",
+      typeName: seg?.typeName ?? String(seg?.type ?? ""),
+      color: el ? getComputedStyle(el).backgroundColor : "var(--accent)",
+      w: rect?.width ?? 96,
+      h: rect?.height ?? 48,
+    });
+  };
+
+  const handleDragEnd = (e: DragEndEvent) => {
+    setActiveField(null);
+    const from = e.active.data.current?.fieldId as string | undefined;
+    const to = e.over?.data.current?.fieldId as string | undefined;
+    if (onReorder && from && to && from !== to) onReorder(from, to);
+  };
 
   const colorOf = (seg: LayoutSegment) =>
     (seg.fieldId && colorMap?.[seg.fieldId]) ||
     COLORS[(seg.colorIndex ?? 0) % COLORS.length];
 
-  return (
+  const body = (
     <div className="space-y-1">
       {rows.map((chunks, ri) => (
         <div key={ri} className="flex items-center gap-2">
@@ -458,49 +559,101 @@ function WrappedBand({
               const displayName =
                 s.arrayIndex === undefined ? s.name : `${s.name}[${s.arrayIndex}]`;
               const isBits = s.type !== undefined && isUnsignedInt(s.type);
-              return (
-                <div
-                  key={ci}
-                  onClick={
-                    isBits && s.fieldId
-                      ? () => {
-                          useStructStore.getState().setFocusedBitField(s.fieldId!);
-                          document
-                            .getElementById(`bits-${s.fieldId}`)
-                            ?.scrollIntoView({ behavior: "smooth", block: "start" });
-                        }
-                      : undefined
-                  }
-                  style={{ width: pct(c.size), background: colorOf(s) }}
-                  className={`flex shrink-0 flex-col items-center justify-center overflow-hidden border-r border-black/10 text-xs text-field-ink last:border-r-0 ${
-                    isBits ? "cursor-pointer" : ""
-                  }`}
-                  title={`${displayName}: ${s.typeName ?? s.type} — offset ${s.offset}, ${s.size} bytes${
-                    isBits ? " (click: Status Bits)" : ""
-                  }`}
-                >
-                  {c.isStart ? (
-                    <>
-                      <span className="max-w-full truncate px-1 font-medium">
-                        {displayName}
-                      </span>
-                      <span className="max-w-full truncate px-1 font-mono text-[9px] leading-tight opacity-70">
-                        {s.typeName ?? s.type}
-                      </span>
-                    </>
-                  ) : (
-                    // Önceki satırdan devam eden parça: etiket soluk tekrarlanır.
-                    <span className="max-w-full truncate px-1 font-medium opacity-45">
+              const handleBitsClick =
+                isBits && s.fieldId
+                  ? () => {
+                      useStructStore.getState().setFocusedBitField(s.fieldId!);
+                      document
+                        .getElementById(`bits-${s.fieldId}`)
+                        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                    }
+                  : undefined;
+              const chunkStyle = { width: pct(c.size), background: colorOf(s) };
+              const chunkClass = `flex shrink-0 flex-col items-center justify-center overflow-hidden border-r border-black/10 text-xs text-field-ink last:border-r-0 ${
+                isBits ? "cursor-pointer" : ""
+              }`;
+              const chunkTitle = `${displayName}: ${s.typeName ?? s.type} — offset ${s.offset}, ${s.size} bytes${
+                onReorder ? " (drag: reorder)" : ""
+              }${isBits ? " (click: Status Bits)" : ""}`;
+              const content = (
+                c.isStart ? (
+                  <>
+                    <span className="max-w-full truncate px-1 font-medium">
                       {displayName}
                     </span>
-                  )}
-                </div>
+                    <span className="max-w-full truncate px-1 font-mono text-[9px] leading-tight opacity-70">
+                      {s.typeName ?? s.type}
+                    </span>
+                  </>
+                ) : (
+                  // Önceki satırdan devam eden parça: etiket soluk tekrarlanır.
+                  <span className="max-w-full truncate px-1 font-medium opacity-45">
+                    {displayName}
+                  </span>
+                )
+              );
+
+              // Salt-okunur (önizleme) yol: eski düz div. Canlı yol: sürüklenebilir parça.
+              if (!onReorder || !s.fieldId) {
+                return (
+                  <div
+                    key={ci}
+                    onClick={handleBitsClick}
+                    style={chunkStyle}
+                    className={chunkClass}
+                    title={chunkTitle}
+                  >
+                    {content}
+                  </div>
+                );
+              }
+              return (
+                <RowFieldChunk
+                  key={ci}
+                  dragId={`${s.fieldId}:${ri}:${ci}`}
+                  fieldId={s.fieldId}
+                  activeFieldId={activeField?.id ?? null}
+                  style={chunkStyle}
+                  className={chunkClass}
+                  title={chunkTitle}
+                  onClick={handleBitsClick}
+                >
+                  {content}
+                </RowFieldChunk>
               );
             })}
           </div>
         </div>
       ))}
     </div>
+  );
+
+  if (!onReorder) return body;
+  return (
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+      onDragCancel={() => setActiveField(null)}
+    >
+      {body}
+      {/* İmleci takip eden kopya: tutulan parça, Strip'teki blok görünümüyle taşınır. */}
+      <DragOverlay dropAnimation={null}>
+        {activeField ? (
+          <div
+            style={{ width: activeField.w, height: activeField.h, background: activeField.color }}
+            // Strip'teki sürüklenen blokla aynı soluklaşma (%50) → iki görünüm tutarlı.
+            className="flex cursor-grabbing flex-col items-center justify-center overflow-hidden rounded-md text-xs text-field-ink opacity-50 shadow-lg ring-1 ring-black/20"
+          >
+            <span className="max-w-full truncate px-1 font-medium">{activeField.name}</span>
+            <span className="max-w-full truncate px-1 font-mono text-[9px] leading-tight opacity-70">
+              {activeField.typeName}
+            </span>
+          </div>
+        ) : null}
+      </DragOverlay>
+    </DndContext>
   );
 }
 
@@ -795,6 +948,7 @@ export default function LayoutVisualizer({ mode = "edit" }: { mode?: Mode }) {
   const setPreviewVersion = useStructStore((s) => s.setPreviewVersion);
   const addField = useStructStore((s) => s.addField);
   const setModel = useStructStore((s) => s.setModel);
+  const reorderFields = useStructStore((s) => s.reorderFields);
   const platform = useStructStore((s) => s.platform);
   // Yerleşim sayılarının HANGİ platforma ait olduğu panel başlığında görünsün —
   // yoksa platform değişimi bazı struct'larda hiçbir görünür fark yaratmaz.
@@ -1031,11 +1185,22 @@ export default function LayoutVisualizer({ mode = "edit" }: { mode?: Mode }) {
             {view === "rows" ? (
               // Satır görünümünde renkler: canlıda id-bazlı harita (Strip ile aynı),
               // önizlemede segment colorIndex'i (Band ile aynı) → mod değişince
-              // hiçbir alanın rengi değişmez.
+              // hiçbir alanın rengi değişmez. Canlıda parçalar sürüklenerek alan
+              // sırası değiştirilebilir (Strip'teki reorder ile aynı semantik).
               <WrappedBand
                 layout={layout}
                 rowBytes={rowBytes}
                 colorMap={previewVersion ? undefined : colorMap}
+                onReorder={
+                  previewVersion
+                    ? undefined
+                    : (fromId, toId) => {
+                        const fields = useStructStore.getState().currentModel.fields;
+                        const from = fields.findIndex((f) => f.id === fromId);
+                        const to = fields.findIndex((f) => f.id === toId);
+                        if (from >= 0 && to >= 0) reorderFields(from, to);
+                      }
+                }
               />
             ) : previewVersion ? (
               <Band layout={layout} pxPerByte={autoPxPerByte} />
@@ -1046,7 +1211,9 @@ export default function LayoutVisualizer({ mode = "edit" }: { mode?: Mode }) {
 
           <p className="mt-2 text-[11px] text-muted">
             {view === "rows"
-              ? `Row view is read-only — switch to Strip to reorder fields${hasBits ? " · click an unsigned field to edit its Status Bits" : ""}.`
+              ? previewVersion
+                ? "Read-only preview."
+                : `Tip: drag a block onto another field to reorder${hasBits ? " · click an unsigned field to edit its Status Bits" : ""}.`
               : previewVersion
                 ? hasNested
                   ? "Read-only preview · click a struct to expand its layout."

@@ -155,6 +155,13 @@ interface StructState {
   ) => void;
   updateBitField: (fieldId: string, bitId: string, patch: Partial<Omit<BitField, "id">>) => void;
   removeBitField: (fieldId: string, bitId: string) => void;
+  /** Bir bit alanını BAŞKA bir alana taşı (ad/tip/anlamlar korunur, tek undo adımı). */
+  moveBitField: (
+    fromFieldId: string,
+    bitId: string,
+    toFieldId: string,
+    placement: Pick<BitField, "wordIndex" | "startBit" | "width">
+  ) => void;
 
   // --- Geçmiş (undo/redo) ---
   past: StructModel[];
@@ -305,6 +312,25 @@ export const useStructStore = create<StructState>()(
               bitFields: (f.bitFields ?? []).filter((b) => b.id !== bitId),
             })),
           })),
+
+        moveBitField: (fromFieldId, bitId, toFieldId, placement) =>
+          editModel((m) => {
+            // Taşınan biti kaynaktan bul (ad/kind/meanings hedefe aynen taşınır).
+            let moved: BitField | undefined;
+            const without = mapFieldById(m.fields, fromFieldId, (f) => {
+              moved = (f.bitFields ?? []).find((b) => b.id === bitId);
+              return { ...f, bitFields: (f.bitFields ?? []).filter((b) => b.id !== bitId) };
+            });
+            if (!moved) return m; // bit yoksa modele dokunma
+            const movedBit: BitField = { ...moved, ...placement };
+            return {
+              ...m,
+              fields: mapFieldById(without, toFieldId, (f) => ({
+                ...f,
+                bitFields: [...(f.bitFields ?? []), movedBit],
+              })),
+            };
+          }),
 
         // -----------------------------------------------------------------
         // Undo / redo

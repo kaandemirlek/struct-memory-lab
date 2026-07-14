@@ -1,7 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { useStructStore } from "@/store/useStructStore";
+import {
+  fieldTypeLabel,
+  useStructStore,
+  type Annotation,
+} from "@/store/useStructStore";
 import { timeAgo } from "@/engine/versioning";
 import Panel from "@/components/ui/Panel";
 import Button from "@/components/ui/Button";
@@ -30,7 +34,7 @@ export default function AnnotationsPanel() {
   const fieldName = (id: string) => model.fields.find((f) => f.id === id)?.name;
   const versionLabel = (id: string) => versions.find((v) => v.id === id)?.label;
 
-  const labelFor = (a: (typeof annotations)[number]): string => {
+  const labelFor = (a: Annotation): string => {
     if (a.targetKind === "field") {
       const name = fieldName(a.targetId);
       return name ? `Field: ${name}` : "Field: (removed)";
@@ -38,6 +42,28 @@ export default function AnnotationsPanel() {
     const label = versionLabel(a.targetId);
     return label ? `Version: ${label}` : "Version: (removed)";
   };
+
+  // Not yazıldıktan sonra alanda ne değişti? (boş dizi = değişiklik yok).
+  // Notlar kısıt gibidir ("bunu taşıma") — kısıt ihlal edilince not eskimiş
+  // görünmek yerine uyarıya dönüşür.
+  const fieldChanges = (a: Annotation): string[] => {
+    if (a.targetKind !== "field" || !a.fieldSnapshot) return [];
+    const index = model.fields.findIndex((f) => f.id === a.targetId);
+    if (index < 0) return []; // silinen hedef zaten "(removed)" olarak işaretli
+    const field = model.fields[index];
+    const snap = a.fieldSnapshot;
+    const changes: string[] = [];
+    if (field.name !== snap.name) changes.push(`renamed ${snap.name} → ${field.name}`);
+    const typeLabel = fieldTypeLabel(field);
+    if (typeLabel !== snap.typeLabel) changes.push(`type ${snap.typeLabel} → ${typeLabel}`);
+    const arrayLength = Math.max(1, field.arrayLength ?? 1);
+    if (arrayLength !== snap.arrayLength)
+      changes.push(`array ×${snap.arrayLength} → ×${arrayLength}`);
+    if (index !== snap.index) changes.push(`moved #${snap.index + 1} → #${index + 1}`);
+    return changes;
+  };
+
+  const changedCount = annotations.filter((a) => fieldChanges(a).length > 0).length;
 
   const submit = () => {
     const trimmed = text.trim();
@@ -66,6 +92,9 @@ export default function AnnotationsPanel() {
           {annotations.length === 0
             ? "no notes"
             : `${annotations.length} ${annotations.length === 1 ? "note" : "notes"}`}
+          {changedCount > 0 && (
+            <span className="text-warning"> · {changedCount} changed since noted</span>
+          )}
         </span>
       }
     >
@@ -112,6 +141,7 @@ export default function AnnotationsPanel() {
             const orphan =
               (a.targetKind === "field" && !fieldName(a.targetId)) ||
               (a.targetKind === "version" && !versionLabel(a.targetId));
+            const changes = fieldChanges(a);
             const isEditing = editingId === a.id;
 
             return (
@@ -154,6 +184,12 @@ export default function AnnotationsPanel() {
                     </Button>
                   </div>
                 </div>
+
+                {changes.length > 0 && (
+                  <p className="mt-1.5 rounded-md border border-warning/30 bg-warning/10 px-2 py-1 text-[11px] text-warning">
+                    Field changed since this note: {changes.join(" · ")}
+                  </p>
+                )}
 
                 {isEditing ? (
                   <div className="mt-2 space-y-2">

@@ -27,6 +27,7 @@ import type {
 } from "@/types";
 import { computeLayout } from "@/engine/layout";
 import { alignFieldIds } from "@/engine/identity";
+import { diffVersions } from "@/engine/diff";
 
 type Category = "signed" | "unsigned" | "float" | "bool" | "char" | "struct";
 
@@ -47,6 +48,7 @@ export type FieldImpactKind =
   | "moved"
   | "resized"
   | "type-changed"
+  | "nested-changed"
   | "padding-changed"
   | "downstream";
 
@@ -340,6 +342,24 @@ export function analyzeFieldImpacts(
           "Type",
           `Field "${fb.name}" type changed from ${typeSig(beforeField)} to ${typeSig(afterField)}.`
         );
+      }
+
+      if (
+        beforeField.type === "struct" &&
+        afterField.type === "struct" &&
+        beforeField.nested &&
+        afterField.nested
+      ) {
+        const nestedChanges = diffVersions(beforeField.nested, afterField.nested);
+        if (nestedChanges.length > 0) {
+          addBadge(
+            badges,
+            "nested-changed",
+            "info",
+            `Nested ${nestedChanges.length}`,
+            nestedChanges.map((change) => change.detail).join("\n")
+          );
+        }
       }
 
       if (beforeLayout.paddingBefore !== fb.paddingBefore) {

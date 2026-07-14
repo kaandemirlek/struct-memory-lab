@@ -18,7 +18,7 @@ import { buildShareUrl } from "@/lib/share";
 export type VersionPanelMode = "edit" | "compare";
 
 function VersionChangeSummary({ prev, curr }: { prev?: Version; curr: Version }) {
-  if (!prev) return <span className="text-muted">Initial snapshot</span>;
+  if (!prev) return <span className="text-muted">Initial version</span>;
   const s = summarizeDiff(diffVersions(prev.model, curr.model));
   const parts: ReactNode[] = [];
   if (s.added)
@@ -227,7 +227,7 @@ export default function VersionPanel({
             Save a version in Edit Layout before comparing.
           </p>
         ) : (
-          <ul className="space-y-2">
+          <ul className="space-y-2 lg:max-h-[calc(100vh-250px)] lg:overflow-y-auto lg:pr-1">
             {versions.map((v) => {
               const isFrom = fromVersionId === v.id;
               const isTo = toVersionId === v.id;
@@ -345,12 +345,12 @@ export default function VersionPanel({
 
   return (
     <Panel
-      title="Snapshots"
+      title="Versions"
       collapsible
       defaultOpen
       summary={
         <span className="text-muted">
-          {versions.length} {versions.length === 1 ? "snapshot" : "snapshots"}
+          {versions.length} {versions.length === 1 ? "version" : "versions"}
         </span>
       }
       actions={
@@ -362,7 +362,7 @@ export default function VersionPanel({
         </>
       }
     >
-      <ul className="space-y-2">
+      <ul className="space-y-2 lg:max-h-[calc(100vh-250px)] lg:overflow-y-auto lg:pr-1">
         <LiveCard
           model={current}
           active={previewVersionId === null}
@@ -370,7 +370,7 @@ export default function VersionPanel({
         />
         {versions.length === 0 ? (
           <li className="break-words rounded-lg border border-border bg-surface p-2.5 text-sm text-muted">
-            No saved snapshots yet.
+            No saved versions yet.
           </li>
         ) : (
           versions.map((v, idx) => {
@@ -442,7 +442,7 @@ export default function VersionPanel({
                       onClick={() => setPreviewVersion(v.id)}
                       onDoubleClick={() => startEdit(v.id, v.label)}
                       className="block min-w-0 flex-1 text-left"
-                      title="Preview this snapshot (read-only). Double-click to rename."
+                      title="Preview this version (read-only). Double-click to rename."
                     >
                       <span className="flex min-w-0 items-center gap-2">
                         <span className="min-w-0 truncate text-sm font-semibold">
@@ -488,7 +488,7 @@ export default function VersionPanel({
                         variant="ghost"
                         size="icon"
                         className="text-muted hover:text-foreground"
-                        aria-label="Restore this snapshot into the editor"
+                        aria-label="Restore this version into the editor"
                         title="Restore into editor"
                         onClick={() => loadVersion(v.id)}
                       >
@@ -498,7 +498,7 @@ export default function VersionPanel({
                         variant="ghost"
                         size="icon"
                         className="text-muted hover:text-foreground"
-                        aria-label="Rename this snapshot"
+                        aria-label="Rename this version"
                         title="Rename"
                         onClick={() => startEdit(v.id, v.label)}
                       >
@@ -507,7 +507,7 @@ export default function VersionPanel({
                       <Button
                         variant="danger"
                         size="icon"
-                        aria-label="Delete this snapshot"
+                        aria-label="Delete this version"
                         title="Delete"
                         onClick={() => startDelete(v.id)}
                       >

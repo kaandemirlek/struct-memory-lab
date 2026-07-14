@@ -43,11 +43,12 @@ export type CppPrimitive =
 // ---------------------------------------------------------------------------
 export type Platform = "linux64" | "win64" | "x86-32";
 
-export const DEFAULT_PLATFORM: Platform = "linux64";
+export const DEFAULT_PLATFORM: Platform = "win64";
 
 /** Her primitive tipin byte cinsinden boyutu ve hizalaması (alignment).
- *  NOT: Bu tablo VARSAYILAN platform (linux64 / LP64) içindir; platforma göre
- *  tablo için engine/platform.ts'teki getTypeInfo(platform)'u kullanın. */
+ *  NOT: Bu tablo LP64 (linux64) TEMEL tablosudur — varsayılan platform değil;
+ *  platforma göre tablo için engine/platform.ts'teki getTypeInfo(platform)'u
+ *  kullanın. */
 export const TYPE_INFO: Record<CppPrimitive, { size: number; align: number }> = {
   bool: { size: 1, align: 1 },
   char: { size: 1, align: 1 },

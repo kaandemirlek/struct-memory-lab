@@ -34,7 +34,7 @@ export default function VersionSidebar({ mode }: { mode: VersionPanelMode }) {
   const cmp = resolveComparison(versions, current, baseVersionId, targetVersionId);
   // Her iki sekmede aynı genişlik → sekme değişince kayma/tutarsızlık olmasın.
   const expandedWidth = "lg:w-[320px]";
-  const title = mode === "edit" ? "snapshots" : "versions";
+  const title = "versions";
 
   const compareTargets = [
     ...versions.map((v) => ({
@@ -78,7 +78,7 @@ export default function VersionSidebar({ mode }: { mode: VersionPanelMode }) {
       }`}
     >
       {collapsed ? (
-        <div className="flex min-h-48 w-full flex-col items-center gap-2 rounded-lg border border-border bg-surface p-2 shadow-sm">
+        <div className="flex min-h-48 w-full flex-col items-center gap-2 rounded-lg border border-border bg-surface p-2 shadow-sm lg:max-h-[calc(100vh-96px)]">
           <Button
             variant="ghost"
             size="icon"

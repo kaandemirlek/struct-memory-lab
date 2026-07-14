@@ -7,14 +7,12 @@ import FieldEditor from "@/components/FieldEditor";
 import {
   PanelLeftCloseIcon,
   PanelLeftOpenIcon,
-  PlusIcon,
 } from "@/components/ui/icons";
 
-// Sol "Fields" sütunu — VersionSidebar ile aynı desen: daraltılınca panel,
-// ikon düğmeli ince bir şeride (rail) dönüşür ve orta çalışma alanı genişler.
+// Sol "Fields" sütunu — daraltılınca tek eylemli ince bir şeride dönüşür
+// (tamamı "genişlet" düğmesi) ve orta çalışma alanı genişler.
 export default function FieldsSidebar() {
   const [collapsed, setCollapsed] = useState(false);
-  const addField = useStructStore((s) => s.addField);
   const fieldCount = useStructStore((s) => s.currentModel.fields.length);
 
   return (
@@ -24,36 +22,20 @@ export default function FieldsSidebar() {
       }`}
     >
       {collapsed ? (
-        <div className="flex min-h-48 w-full flex-col items-center gap-2 rounded-lg border border-border bg-surface p-2 shadow-sm">
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="Expand fields sidebar"
-            title="Expand fields"
-            onClick={() => setCollapsed(false)}
-          >
-            <PanelLeftOpenIcon />
-          </Button>
-
-          <Button
-            variant="secondary"
-            size="icon"
-            aria-label="Add field"
-            title="Add field"
-            onClick={() => addField()}
-          >
-            <PlusIcon />
-          </Button>
-
-          <div className="h-px w-8 shrink-0 bg-border" />
-
-          <span
-            className="text-[10px] font-semibold text-muted"
-            title={`${fieldCount} field${fieldCount === 1 ? "" : "s"}`}
-          >
-            {fieldCount}
+        // Daraltılmış hâl: tek işlevli ince bir şerit — tamamı "genişlet" düğmesi.
+        // (Küçük rayda mini kontroller sıkışık duruyordu; tek net eylem daha iyi.)
+        <button
+          type="button"
+          aria-label="Expand fields sidebar"
+          title="Expand fields"
+          onClick={() => setCollapsed(false)}
+          className="flex min-h-48 w-full flex-col items-center gap-3 rounded-lg border border-border bg-surface p-2 pt-3 text-muted shadow-sm transition-colors hover:border-accent/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          <PanelLeftOpenIcon />
+          <span className="text-[11px] font-semibold tracking-wide [writing-mode:vertical-rl]">
+            Fields · {fieldCount}
           </span>
-        </div>
+        </button>
       ) : (
         <FieldEditor
           collapseAction={

@@ -58,4 +58,42 @@ describe("alignFieldIds", () => {
     const aligned = alignFieldIds(base, target);
     expect(aligned.fields.map((x) => x.id)).toEqual(["b1", "a2"]);
   });
+
+  it("aligns matching fields recursively inside nested structs", () => {
+    const base: StructModel = {
+      name: "Player",
+      fields: [
+        {
+          id: "a-position",
+          name: "position",
+          type: "struct",
+          arrayLength: 1,
+          nested: struct([f("a-x", "x", "float"), f("a-y", "y", "float")]),
+        },
+      ],
+    };
+    const target: StructModel = {
+      name: "Player",
+      fields: [
+        {
+          id: "b-position",
+          name: "position",
+          type: "struct",
+          arrayLength: 1,
+          nested: struct([
+            f("b-x", "x", "float"),
+            f("b-y", "y", "float"),
+            f("b-z", "z", "float"),
+          ]),
+        },
+      ],
+    };
+
+    const aligned = alignFieldIds(base, target);
+    expect(aligned.fields[0].id).toBe("b-position");
+    expect(aligned.fields[0].nested?.fields.map((field) => field.id)).toEqual([
+      "b-x",
+      "b-y",
+    ]);
+  });
 });

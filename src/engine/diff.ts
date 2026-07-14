@@ -19,21 +19,20 @@ function typeSignature(field: Field): string {
   return field.arrayLength > 1 ? `${base}[${field.arrayLength}]` : base;
 }
 
-export const diffVersions: DiffVersions = (a, b) => {
-  // İki ayrı parse'tan gelen modellerde id'ler kesişmez (her parse taze id
-  // üretir); isim fallback'iyle hizala ki alanlar "removed + added" görünmesin.
-  a = alignFieldIds(a, b);
+function diffStruct(a: StructModel, b: StructModel, prefix = ""): DiffEntry[] {
   const entries: DiffEntry[] = [];
   const byIdA = new Map(a.fields.map((f) => [f.id, f]));
   const byIdB = new Map(b.fields.map((f) => [f.id, f]));
+  const path = (name: string) => (prefix ? `${prefix}.${name}` : name);
 
   // Silinenler: a'da var, b'de yok.
   for (const fa of a.fields) {
     if (!byIdB.has(fa.id)) {
+      const fieldPath = path(fa.name);
       entries.push({
         kind: "removed",
-        fieldName: fa.name,
-        detail: `${fa.name}: ${typeSignature(fa)}`,
+        fieldName: fieldPath,
+        detail: `${fieldPath}: ${typeSignature(fa)}`,
       });
     }
   }
@@ -41,12 +40,13 @@ export const diffVersions: DiffVersions = (a, b) => {
   // Eklenenler, yeniden adlandırılanlar, tip değişenler: b üzerinden gez.
   for (const fb of b.fields) {
     const fa = byIdA.get(fb.id);
+    const fieldPath = path(fb.name);
 
     if (!fa) {
       entries.push({
         kind: "added",
-        fieldName: fb.name,
-        detail: `${fb.name}: ${typeSignature(fb)}`,
+        fieldName: fieldPath,
+        detail: `${fieldPath}: ${typeSignature(fb)}`,
       });
       continue;
     }
@@ -54,17 +54,21 @@ export const diffVersions: DiffVersions = (a, b) => {
     if (fa.name !== fb.name) {
       entries.push({
         kind: "renamed",
-        fieldName: fb.name,
-        detail: `${fa.name} → ${fb.name}`,
+        fieldName: fieldPath,
+        detail: `${path(fa.name)} → ${fieldPath}`,
       });
     }
 
-    if (fa.type !== fb.type || fa.arrayLength !== fb.arrayLength) {
+    if (typeSignature(fa) !== typeSignature(fb)) {
       entries.push({
         kind: "type-changed",
-        fieldName: fb.name,
-        detail: `${fb.name}: ${typeSignature(fa)} → ${typeSignature(fb)}`,
+        fieldName: fieldPath,
+        detail: `${fieldPath}: ${typeSignature(fa)} → ${typeSignature(fb)}`,
       });
+    }
+
+    if (fa.type === "struct" && fb.type === "struct" && fa.nested && fb.nested) {
+      entries.push(...diffStruct(fa.nested, fb.nested, fieldPath));
     }
   }
 
@@ -76,12 +80,19 @@ export const diffVersions: DiffVersions = (a, b) => {
   if (reordered) {
     entries.push({
       kind: "reordered",
-      fieldName: "",
-      detail: "Field order changed",
+      fieldName: prefix,
+      detail: prefix ? `${prefix}: field order changed` : "Field order changed",
     });
   }
 
   return entries;
+}
+
+export const diffVersions: DiffVersions = (a, b) => {
+  // İki ayrı parse'tan gelen modellerde id'ler kesişmez (nested alanlar dahil);
+  // isim fallback'iyle hizala ki alanlar "removed + added" görünmesin.
+  a = alignFieldIds(a, b);
+  return diffStruct(a, b);
 };
 
 // ----------------------------------------------------------------------------

@@ -5,6 +5,7 @@ import { optimizeLayout } from "@/engine/optimizer";
 import { computeLayout } from "@/engine/layout";
 import { toSegments } from "@/engine/segments";
 import Button from "@/components/ui/Button";
+import Panel from "@/components/ui/Panel";
 import MiniLayoutStrip from "@/components/MiniLayoutStrip";
 
 export default function OptimizerPanel() {
@@ -26,17 +27,22 @@ export default function OptimizerPanel() {
   const maxBytes = Math.max(currentLayout.totalSize, optimizedLayout.totalSize);
 
   return (
-    <div className="space-y-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-sm">
-          Reordering fields saves{" "}
+    <Panel
+      title="Optimizer"
+      collapsible
+      defaultOpen={false}
+      summary={
+        <span>
+          reordering saves{" "}
           <span className="font-semibold text-emerald-600 dark:text-emerald-400">
-            {result.bytesSaved} bytes
+            {result.bytesSaved} B
           </span>{" "}
           <span className="text-muted">
-            ({result.currentSize} to {result.optimizedSize} B).
+            ({result.currentSize} → {result.optimizedSize} B)
           </span>
-        </p>
+        </span>
+      }
+      actions={
         <Button
           variant="primary"
           size="sm"
@@ -45,8 +51,8 @@ export default function OptimizerPanel() {
         >
           Apply
         </Button>
-      </div>
-
+      }
+    >
       <div className="space-y-2">
         <MiniLayoutStrip
           label="Current"
@@ -63,6 +69,6 @@ export default function OptimizerPanel() {
           colorIndexFor={colorIndexFor}
         />
       </div>
-    </div>
+    </Panel>
   );
 }

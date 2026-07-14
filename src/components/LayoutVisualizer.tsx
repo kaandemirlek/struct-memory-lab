@@ -17,7 +17,7 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { resolveComparison, useStructStore } from "@/store/useStructStore";
+import { EXAMPLE_MODEL, resolveComparison, useStructStore } from "@/store/useStructStore";
 import { computeLayout } from "@/engine/layout";
 import { toSegments, type LayoutSegment } from "@/engine/segments";
 import { analyzeFieldImpacts, type FieldImpact } from "@/engine/compatibility";
@@ -31,6 +31,10 @@ import type {
   WarningSeverity,
 } from "@/types";
 import Panel from "@/components/ui/Panel";
+import Button from "@/components/ui/Button";
+import { ChevronRightIcon } from "@/components/ui/icons";
+import { FIELD_COLORS } from "@/lib/fieldColors";
+import { HATCH } from "@/lib/layoutStyles";
 
 type Mode = "edit" | "compare";
 
@@ -40,18 +44,7 @@ const subscribeToNothing = () => () => {};
 
 // Stable color palette for fields. Daha çok renk = kimlik-bazlı sabit renklerde
 // iki bloğun aynı renge düşme olasılığı azalır (kararlılık bozulmadan).
-const COLORS = [
-  "#60a5fa", // blue
-  "#34d399", // emerald
-  "#f472b6", // pink
-  "#fbbf24", // amber
-  "#a78bfa", // violet
-  "#fb7185", // rose
-  "#22d3ee", // cyan
-  "#a3e635", // lime
-  "#fb923c", // orange
-  "#e879f9", // fuchsia
-];
+const COLORS = FIELD_COLORS;
 
 // ============================================================================
 // Compare-mode helpers (side-by-side From/To layouts with change impacts).
@@ -175,7 +168,7 @@ function LayoutStrip({
                   width: s.size * pxPerByte,
                   background: COLORS[fieldColorIndex(s, colorById) % COLORS.length],
                 }}
-                className={`relative flex shrink-0 flex-col items-center justify-center overflow-hidden border-r border-black/10 text-xs text-black last:border-r-0 ${
+                className={`relative flex shrink-0 flex-col items-center justify-center overflow-hidden border-r border-black/10 text-xs text-field-ink last:border-r-0 ${
                   severity ? RING_STYLES[severity] : ""
                 }`}
                 title={title}
@@ -199,8 +192,7 @@ function LayoutStrip({
                 key={i}
                 style={{
                   width: s.size * pxPerByte,
-                  backgroundImage:
-                    "repeating-linear-gradient(45deg, rgba(120,120,120,.30) 0 4px, transparent 4px 8px)",
+                  backgroundImage: HATCH,
                 }}
                 className="flex shrink-0 items-center justify-center border-r border-border text-[10px] text-muted last:border-r-0"
                 title={title}
@@ -284,6 +276,19 @@ function assignFieldColors(fields: { fieldId: string }[]): Record<string, string
 const fieldLabel = (fl: FieldLayout) =>
   (fl.arrayLength ?? 1) > 1 ? `${fl.name}[${fl.arrayLength}]` : fl.name;
 
+// Blok içi aç/kapat oku — metin glifleri (▾/▸) yerine Panel ile aynı SVG dili.
+function BlockChevron({ open }: { open: boolean }) {
+  return (
+    <ChevronRightIcon
+      width={10}
+      height={10}
+      strokeWidth={3}
+      className={`ml-0.5 inline-block shrink-0 transition-transform ${open ? "rotate-90" : ""}`}
+      aria-hidden
+    />
+  );
+}
+
 // Salt-okunur özyinelemeli band (nested struct iç yerleşimi + önizleme için; reorder yok).
 function Band({ layout, pxPerByte }: { layout: LayoutResult; pxPerByte: number }) {
   const segments = toSegments(layout);
@@ -299,8 +304,7 @@ function Band({ layout, pxPerByte }: { layout: LayoutResult; pxPerByte: number }
                 key={i}
                 style={{
                   width: s.size * pxPerByte,
-                  backgroundImage:
-                    "repeating-linear-gradient(45deg, rgba(120,120,120,.30) 0 4px, transparent 4px 8px)",
+                  backgroundImage: HATCH,
                 }}
                 className="flex shrink-0 items-center justify-center border-r border-border text-[10px] text-muted last:border-r-0"
                 title={`padding: ${s.size} wasted bytes`}
@@ -325,12 +329,12 @@ function Band({ layout, pxPerByte }: { layout: LayoutResult; pxPerByte: number }
                 width: s.size * pxPerByte,
                 background: COLORS[s.colorIndex! % COLORS.length],
               }}
-              className={`flex shrink-0 flex-col items-center justify-center overflow-hidden border-r border-black/10 text-xs text-black last:border-r-0 ${expandable ? "cursor-pointer" : ""}`}
+              className={`flex shrink-0 flex-col items-center justify-center overflow-hidden border-r border-black/10 text-xs text-field-ink last:border-r-0 ${expandable ? "cursor-pointer" : ""}`}
               title={`${displayName}: ${s.typeName ?? s.type} — offset ${s.offset}, ${s.size} bytes`}
             >
-              <span className="max-w-full truncate px-1 font-medium">
-                {displayName}
-                {expandable && <span className="ml-0.5">{isOpen ? "▾" : "▸"}</span>}
+              <span className="flex max-w-full items-center truncate px-1 font-medium">
+                <span className="truncate">{displayName}</span>
+                {expandable && <BlockChevron open={!!isOpen} />}
               </span>
               {/* Veri tipi (ör. uint32_t / Vec3). */}
               <span className="max-w-full truncate px-1 font-mono text-[10px] leading-tight opacity-80">
@@ -368,11 +372,134 @@ function Band({ layout, pxPerByte }: { layout: LayoutResult; pxPerByte: number }
         .map((s, i) => (
           <div key={i} className="mt-3 border-l-2 border-accent/40 pl-3">
             <div className="mb-1 text-xs text-muted">
-              ▾ {s.name}: {s.typeName} — inner layout ({s.nested!.totalSize} B)
+              <BlockChevron open /> {s.name}: {s.typeName} — inner layout ({s.nested!.totalSize} B)
             </div>
             <Band layout={s.nested!} pxPerByte={pxPerByte} />
           </div>
         ))}
+    </div>
+  );
+}
+
+// ============================================================================
+// Satır görünümü (hex-dump tarzı): bellek, sabit genişlikte satırlara sarılır.
+// Satır sınırını aşan alanlar parçalara bölünür → sürükleme burada anlamsız,
+// görünüm salt-okunurdur (yeniden sıralamak için Strip görünümü kullanılır).
+// ============================================================================
+
+type RowChunk = {
+  seg: LayoutSegment;
+  size: number; // bu satıra düşen byte sayısı
+  isStart: boolean; // segmentin ilk parçası (etiket burada gösterilir)
+};
+
+function buildRows(
+  segments: LayoutSegment[],
+  totalSize: number,
+  rowBytes: number
+): RowChunk[][] {
+  const rows: RowChunk[][] = [];
+  for (let rowStart = 0; rowStart < totalSize; rowStart += rowBytes) {
+    const rowEnd = Math.min(rowStart + rowBytes, totalSize);
+    const chunks: RowChunk[] = [];
+    for (const seg of segments) {
+      const start = Math.max(seg.offset, rowStart);
+      const end = Math.min(seg.offset + seg.size, rowEnd);
+      if (end > start) {
+        chunks.push({ seg, size: end - start, isStart: start === seg.offset });
+      }
+    }
+    rows.push(chunks);
+  }
+  return rows;
+}
+
+function WrappedBand({
+  layout,
+  rowBytes,
+  colorMap,
+}: {
+  layout: LayoutResult;
+  rowBytes: number;
+  /** Canlı görünümde id-bazlı renkler; verilmezse segmentin colorIndex'i kullanılır. */
+  colorMap?: Record<string, string>;
+}) {
+  const segments = toSegments(layout);
+  const rows = buildRows(segments, layout.totalSize, rowBytes);
+  const pct = (bytes: number) => `${(bytes / rowBytes) * 100}%`;
+
+  const colorOf = (seg: LayoutSegment) =>
+    (seg.fieldId && colorMap?.[seg.fieldId]) ||
+    COLORS[(seg.colorIndex ?? 0) % COLORS.length];
+
+  return (
+    <div className="space-y-1">
+      {rows.map((chunks, ri) => (
+        <div key={ri} className="flex items-center gap-2">
+          {/* Satır başı offset'i (hex-dump adres sütunu gibi). */}
+          <span className="w-9 shrink-0 text-right font-mono text-[10px] tabular-nums text-muted">
+            {ri * rowBytes}
+          </span>
+          <div className="flex h-12 min-w-0 flex-1 overflow-hidden rounded-md border border-border">
+            {chunks.map((c, ci) => {
+              const s = c.seg;
+              if (s.kind === "padding") {
+                return (
+                  <div
+                    key={ci}
+                    style={{ width: pct(c.size), backgroundImage: HATCH }}
+                    className="flex shrink-0 items-center justify-center border-r border-border text-[9px] text-muted last:border-r-0"
+                    title={`padding: ${s.size} wasted bytes`}
+                  >
+                    {c.isStart ? s.size : ""}
+                  </div>
+                );
+              }
+              const displayName =
+                s.arrayIndex === undefined ? s.name : `${s.name}[${s.arrayIndex}]`;
+              const isBits = s.type !== undefined && isUnsignedInt(s.type);
+              return (
+                <div
+                  key={ci}
+                  onClick={
+                    isBits && s.fieldId
+                      ? () => {
+                          useStructStore.getState().setFocusedBitField(s.fieldId!);
+                          document
+                            .getElementById(`bits-${s.fieldId}`)
+                            ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                        }
+                      : undefined
+                  }
+                  style={{ width: pct(c.size), background: colorOf(s) }}
+                  className={`flex shrink-0 flex-col items-center justify-center overflow-hidden border-r border-black/10 text-xs text-field-ink last:border-r-0 ${
+                    isBits ? "cursor-pointer" : ""
+                  }`}
+                  title={`${displayName}: ${s.typeName ?? s.type} — offset ${s.offset}, ${s.size} bytes${
+                    isBits ? " (click: Status Bits)" : ""
+                  }`}
+                >
+                  {c.isStart ? (
+                    <>
+                      <span className="max-w-full truncate px-1 font-medium">
+                        {displayName}
+                      </span>
+                      <span className="max-w-full truncate px-1 font-mono text-[9px] leading-tight opacity-70">
+                        {s.typeName ?? s.type}
+                      </span>
+                    </>
+                  ) : (
+                    // Önceki satırdan devam eden parça: etiket soluk tekrarlanır.
+                    <span className="max-w-full truncate px-1 font-medium opacity-45">
+                      {displayName}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -385,15 +512,14 @@ function fieldBlockParts(fl: FieldLayout, onToggle: () => void) {
   const isBitField = isUnsignedInt(fl.type);
 
   // struct → aç/kapat · unsigned → o alanı Status Bits'te odakla + editörüne kaydır.
-  // Kaydırma HER tıklamada imperatif yapılır (odak zaten aynı alandaysa bile) →
-  // yukarı kaydırıp aynı alana tekrar tıklayınca yine oraya gider.
+  // Panel kapalıysa senkron kaydırma hedefi bulamaz; BitFieldPanel odak değişimini
+  // görüp önce açılır, sonra kendisi kaydırır. Panel açıkken senkron kaydırma
+  // her tıklamada çalışır (aynı alana tekrar tıklayınca yine gider).
   const handleClick = expandable
     ? onToggle
     : isBitField
       ? () => {
           useStructStore.getState().setFocusedBitField(fl.fieldId);
-          // Editör her zaman DOM'da (odaktan bağımsız render edilir) → senkron
-          // kaydır. Her tıklamada çalışır: aynı alana tekrar tıklayınca yine gider.
           document
             .getElementById(`bits-${fl.fieldId}`)
             ?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -401,7 +527,7 @@ function fieldBlockParts(fl: FieldLayout, onToggle: () => void) {
       : undefined;
 
   const title = `${fieldLabel(fl)}: ${fl.typeName ?? fl.type} — offset ${fl.offset}, ${fl.size} bytes (drag: reorder${expandable ? " · click: expand/collapse" : isBitField ? " · click: Status Bits" : ""})`;
-  return { arrayLength, elementSize, expandable, handleClick, title };
+  return { arrayLength, elementSize, expandable, isBitField, handleClick, title };
 }
 
 // Bloğun iç hücreleri (dizi ise birden çok). Sortable ve statik sürüm ortak kullanır.
@@ -412,6 +538,7 @@ function FieldCells({
   arrayLength,
   elementSize,
   expandable,
+  isBitField,
   open,
 }: {
   fl: FieldLayout;
@@ -420,6 +547,7 @@ function FieldCells({
   arrayLength: number;
   elementSize: number;
   expandable: boolean;
+  isBitField: boolean;
   open: boolean;
 }) {
   return (
@@ -428,12 +556,20 @@ function FieldCells({
         <div
           key={ai}
           style={{ width: elementSize * pxPerByte, background: bg }}
-          className="flex h-16 shrink-0 flex-col items-center justify-center overflow-hidden border-r border-black/10 text-xs text-black"
+          className="relative flex h-16 shrink-0 flex-col items-center justify-center overflow-hidden border-r border-black/10 text-xs text-field-ink"
         >
-          <span className="max-w-full truncate px-1 font-medium">
-            {fl.name}
-            {arrayLength > 1 ? `[${ai}]` : ""}
-            {expandable && ai === 0 && <span className="ml-0.5">{open ? "▾" : "▸"}</span>}
+          {/* Görünür ipucu: unsigned alanlar tıklanınca Status Bits editörüne gider. */}
+          {isBitField && ai === 0 && (
+            <span className="pointer-events-none absolute right-0.5 top-0.5 rounded bg-black/15 px-1 text-[8px] font-semibold leading-3 opacity-0 transition-opacity group-hover:opacity-100">
+              bits
+            </span>
+          )}
+          <span className="flex max-w-full items-center truncate px-1 font-medium">
+            <span className="truncate">
+              {fl.name}
+              {arrayLength > 1 ? `[${ai}]` : ""}
+            </span>
+            {expandable && ai === 0 && <BlockChevron open={open} />}
           </span>
           {/* Alanın veri tipi (ör. uint32_t / Vec3) — kullanıcı doğrudan görsün. */}
           <span className="max-w-full truncate px-1 font-mono text-[10px] leading-tight opacity-80">
@@ -464,7 +600,8 @@ function FieldBlock({
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: fl.fieldId });
-  const { arrayLength, elementSize, expandable, handleClick, title } = fieldBlockParts(fl, onToggle);
+  const { arrayLength, elementSize, expandable, isBitField, handleClick, title } =
+    fieldBlockParts(fl, onToggle);
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -479,7 +616,7 @@ function FieldBlock({
       {...attributes}
       {...listeners}
       onClick={handleClick}
-      className="flex shrink-0 cursor-grab active:cursor-grabbing"
+      className="group flex shrink-0 cursor-grab active:cursor-grabbing"
       title={title}
     >
       <FieldCells
@@ -489,6 +626,7 @@ function FieldBlock({
         arrayLength={arrayLength}
         elementSize={elementSize}
         expandable={expandable}
+        isBitField={isBitField}
         open={open}
       />
     </div>
@@ -509,9 +647,10 @@ function StaticFieldBlock({
   onToggle: () => void;
   bg: string;
 }) {
-  const { arrayLength, elementSize, expandable, handleClick, title } = fieldBlockParts(fl, onToggle);
+  const { arrayLength, elementSize, expandable, isBitField, handleClick, title } =
+    fieldBlockParts(fl, onToggle);
   return (
-    <div onClick={handleClick} className="flex shrink-0 cursor-grab" title={title}>
+    <div onClick={handleClick} className="group flex shrink-0 cursor-grab" title={title}>
       <FieldCells
         fl={fl}
         pxPerByte={pxPerByte}
@@ -519,6 +658,7 @@ function StaticFieldBlock({
         arrayLength={arrayLength}
         elementSize={elementSize}
         expandable={expandable}
+        isBitField={isBitField}
         open={open}
       />
     </div>
@@ -530,8 +670,7 @@ function PaddingCell({ size, pxPerByte }: { size: number; pxPerByte: number }) {
     <div
       style={{
         width: size * pxPerByte,
-        backgroundImage:
-          "repeating-linear-gradient(45deg, rgba(120,120,120,.30) 0 4px, transparent 4px 8px)",
+        backgroundImage: HATCH,
       }}
       className="flex h-16 shrink-0 items-center justify-center border-r border-border text-[10px] text-muted"
       title={`padding: ${size} wasted bytes`}
@@ -557,6 +696,7 @@ function SortableBand({
 
   // dnd-kit SSR'da benzersiz erişilebilirlik id'leri üretir (DndDescribedBy-N) →
   // sunucu/istemci uyuşmazlığı. Mount'tan önce statik, sonra sürüklenebilir render et.
+  // (FieldEditor ile aynı hydration-guard deseni.)
   const mounted = useSyncExternalStore(subscribeToNothing, () => true, () => false);
 
   const sensors = useSensors(
@@ -636,7 +776,7 @@ function SortableBand({
         .map((fl) => (
           <div key={fl.fieldId} className="mt-3 border-l-2 border-accent/40 pl-3">
             <div className="mb-1 text-xs text-muted">
-              ▾ {fieldLabel(fl)}: {fl.typeName} — inner layout ({fl.nested!.totalSize} B,
+              <BlockChevron open /> {fieldLabel(fl)}: {fl.typeName} — inner layout ({fl.nested!.totalSize} B,
               align {fl.nested!.alignment} B)
             </div>
             <Band layout={fl.nested!} pxPerByte={pxPerByte} />
@@ -653,6 +793,8 @@ export default function LayoutVisualizer({ mode = "edit" }: { mode?: Mode }) {
   const targetVersionId = useStructStore((s) => s.targetVersionId);
   const previewVersionId = useStructStore((s) => s.previewVersionId);
   const setPreviewVersion = useStructStore((s) => s.setPreviewVersion);
+  const addField = useStructStore((s) => s.addField);
+  const setModel = useStructStore((s) => s.setModel);
   const platform = useStructStore((s) => s.platform);
   // Yerleşim sayılarının HANGİ platforma ait olduğu panel başlığında görünsün —
   // yoksa platform değişimi bazı struct'larda hiçbir görünür fark yaratmaz.
@@ -662,6 +804,10 @@ export default function LayoutVisualizer({ mode = "edit" }: { mode?: Mode }) {
   // ref kullanılır çünkü ölçülen div sekmeye göre farklı bir elemandır (edit ↔
   // compare) ve koşullu render'da mount-anı effect'i yeni elemanı yakalayamaz.
   const [byteLimit, setByteLimit] = useState<number | "">("");
+  // Yerleşim görünümü: tek şerit (etkileşimli) ya da sabit genişlikte satırlar
+  // (hex-dump tarzı, salt-okunur). Satır genişliği byte cinsinden seçilir.
+  const [view, setView] = useState<"strip" | "rows">("strip");
+  const [rowBytes, setRowBytes] = useState(8);
   const [containerW, setContainerW] = useState(0);
   const resizeObserver = useRef<ResizeObserver | null>(null);
   const containerRef = useCallback((el: HTMLDivElement | null) => {
@@ -761,6 +907,7 @@ export default function LayoutVisualizer({ mode = "edit" }: { mode?: Mode }) {
   // ---- Edit mode (interactive map + read-only snapshot preview) ----
   const layout = computeLayout(editModelToShow, platform);
   const hasNested = layout.fields.some((f) => f.type === "struct" && f.nested);
+  const hasBits = layout.fields.some((f) => isUnsignedInt(f.type));
   const autoPxPerByte =
     layout.totalSize > 0 && containerW > 0
       ? Math.max(4, Math.min(48, Math.floor(containerW / layout.totalSize)))
@@ -792,10 +939,30 @@ export default function LayoutVisualizer({ mode = "edit" }: { mode?: Mode }) {
       )}
 
       {layout.fields.length === 0 ? (
-        <p className="text-sm text-muted">Add fields to see the memory layout.</p>
+        <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border px-4 py-10 text-center">
+          <p className="text-sm font-medium">This struct has no fields yet</p>
+          <p className="max-w-xs text-xs text-muted">
+            Add a field to see its memory layout, or load the example struct to explore
+            what the tool can do.
+          </p>
+          {previewVersion ? (
+            <Button variant="secondary" size="sm" onClick={() => setPreviewVersion(null)}>
+              Back to Live
+            </Button>
+          ) : (
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <Button variant="primary" size="sm" onClick={() => addField()}>
+                Add field
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => setModel(EXAMPLE_MODEL)}>
+                Load example
+              </Button>
+            </div>
+          )}
+        </div>
       ) : (
         <>
-          <div className="mb-3 flex items-center gap-2">
+          <div className="mb-3 flex flex-wrap items-center gap-2">
             <label className="text-xs text-muted" htmlFor="byte-limit">
               Byte limit
             </label>
@@ -813,6 +980,41 @@ export default function LayoutVisualizer({ mode = "edit" }: { mode?: Mode }) {
               className="w-24 rounded-lg border border-border bg-surface-muted px-2 py-1 text-xs outline-none focus:border-accent"
             />
             <span className="text-xs text-muted">warns if exceeded</span>
+
+            {/* Görünüm seçimi: Strip (etkileşimli şerit) ↔ Rows (satırlara sarılmış). */}
+            <div className="ml-auto flex items-center gap-2">
+              <div className="inline-flex rounded-lg border border-border bg-surface p-0.5">
+                {(["strip", "rows"] as const).map((v) => (
+                  <button
+                    key={v}
+                    type="button"
+                    onClick={() => setView(v)}
+                    aria-pressed={view === v}
+                    className={`rounded-md px-2 py-1 text-xs font-medium transition-colors ${
+                      view === v
+                        ? "bg-accent text-accent-foreground"
+                        : "text-muted hover:bg-surface-muted hover:text-foreground"
+                    }`}
+                  >
+                    {v === "strip" ? "Strip" : "Rows"}
+                  </button>
+                ))}
+              </div>
+              {view === "rows" && (
+                <select
+                  value={rowBytes}
+                  onChange={(e) => setRowBytes(Number(e.target.value))}
+                  aria-label="Bytes per row"
+                  className="rounded-lg border border-border bg-surface-muted px-2 py-1 text-xs outline-none focus:border-accent"
+                >
+                  {[8, 16, 32].map((n) => (
+                    <option key={n} value={n}>
+                      {n} B/row
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
           </div>
 
           {overLimit && (
@@ -826,7 +1028,16 @@ export default function LayoutVisualizer({ mode = "edit" }: { mode?: Mode }) {
           )}
 
           <div ref={containerRef}>
-            {previewVersion ? (
+            {view === "rows" ? (
+              // Satır görünümünde renkler: canlıda id-bazlı harita (Strip ile aynı),
+              // önizlemede segment colorIndex'i (Band ile aynı) → mod değişince
+              // hiçbir alanın rengi değişmez.
+              <WrappedBand
+                layout={layout}
+                rowBytes={rowBytes}
+                colorMap={previewVersion ? undefined : colorMap}
+              />
+            ) : previewVersion ? (
               <Band layout={layout} pxPerByte={autoPxPerByte} />
             ) : (
               <SortableBand layout={layout} pxPerByte={autoPxPerByte} colorMap={colorMap} />
@@ -834,11 +1045,13 @@ export default function LayoutVisualizer({ mode = "edit" }: { mode?: Mode }) {
           </div>
 
           <p className="mt-2 text-[11px] text-muted">
-            {previewVersion
-              ? hasNested
-                ? "Read-only preview · click a struct to expand its layout."
-                : "Read-only preview."
-              : `Tip: drag fields to reorder${hasNested ? " · click a struct to expand its layout" : ""}.`}
+            {view === "rows"
+              ? `Row view is read-only — switch to Strip to reorder fields${hasBits ? " · click an unsigned field to edit its Status Bits" : ""}.`
+              : previewVersion
+                ? hasNested
+                  ? "Read-only preview · click a struct to expand its layout."
+                  : "Read-only preview."
+                : `Tip: drag fields to reorder${hasNested ? " · click a struct to expand its layout" : ""}${hasBits ? " · click an unsigned field to edit its Status Bits" : ""}.`}
           </p>
 
           {/* Legend (alan başına bir giriş). */}

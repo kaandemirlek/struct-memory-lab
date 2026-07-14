@@ -14,6 +14,20 @@
   --danger: #f87171;
   --warning: #fbbf24;
   --info: #60a5fa;
+  /* Field palette (same in both themes; override per theme here if wanted). */
+  --field-ink: #000000;
+  --field-0: #60a5fa; /* blue */
+  --field-1: #34d399; /* emerald */
+  --field-2: #f472b6; /* pink */
+  --field-3: #fbbf24; /* amber */
+  --field-4: #a78bfa; /* violet */
+  --field-5: #fb7185; /* rose */
+  --field-6: #22d3ee; /* cyan */
+  --field-7: #a3e635; /* lime */
+  --field-8: #fb923c; /* orange */
+  --field-9: #e879f9; /* fuchsia */
+  /* Padding hatch stripe — lighter grey reads as "wasted" on the dark surface. */
+  --hatch: rgba(148, 163, 184, 0.28);
 }
 
 :root[data-theme="light"] {
@@ -30,6 +44,8 @@
   --danger: #dc2626;
   --warning: #d97706;
   --info: #2563eb;
+  /* Padding hatch stripe — darker grey to stay visible on the light surface. */
+  --hatch: rgba(100, 116, 139, 0.32);
 }
 
 @theme inline {
@@ -45,6 +61,7 @@
   --color-danger: var(--danger);
   --color-warning: var(--warning);
   --color-info: var(--info);
+  --color-field-ink: var(--field-ink);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useStructStore } from "@/store/useStructStore";
 import {
   bitsPerWord,
@@ -472,7 +472,7 @@ function WordEditor({
 }
 
 function FieldBitEditor({ field, focused }: { field: Field; focused: boolean }) {
-  const [order, setOrder] = useState<BitOrder>("msb");
+  const [order, setOrder] = useState<BitOrder>("lsb");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = (field.bitFields ?? []).find((bit) => bit.id === selectedId) ?? null;
   const warnings = bitWarningsForField(field);
@@ -494,7 +494,7 @@ function FieldBitEditor({ field, focused }: { field: Field; focused: boolean }) 
           <p className="text-[11px] text-muted">{field.type} · {bitsPerWord(field)} bits per word</p>
         </div>
         <div className="flex rounded-lg border border-border bg-surface-muted p-0.5 text-[10px]">
-          {(["msb", "lsb"] as const).map((value) => (
+          {(["lsb", "msb"] as const).map((value) => (
             <button
               key={value}
               onClick={() => setOrder(value)}
@@ -578,13 +578,55 @@ function FieldTree({ fields, focusedId }: { fields: Field[]; focusedId: string |
 export default function BitFieldPanel() {
   const model = useStructStore((s) => s.currentModel);
   const focusedBitFieldId = useStructStore((s) => s.focusedBitFieldId);
-  const anyBitCapable = model.fields.some(hasBitCapable);
+  const setFocusedBitField = useStructStore((s) => s.setFocusedBitField);
+  const bitCapableCount = model.fields.filter(hasBitCapable).length;
+  const anyBitCapable = bitCapableCount > 0;
+  const [open, setOpen] = useState(false);
+
+  // Yerleşim bandında bir unsigned bloğa tıklanınca (store'daki odak değişince):
+  // paneli aç ve ilgili editöre kaydır. Store aboneliği üzerinden dinlenir —
+  // panel içeriği yalnızca açıkken render edildiğinden kaydırma frame'e ertelenir
+  // (ilk frame'de hedef henüz yoksa bir frame daha denenir).
+  useEffect(
+    () =>
+      useStructStore.subscribe((state, prev) => {
+        const id = state.focusedBitFieldId;
+        if (!id || id === prev.focusedBitFieldId) return;
+        setOpen(true);
+        const scroll = () =>
+          document
+            .getElementById(`bits-${id}`)
+            ?.scrollIntoView({ behavior: "smooth", block: "center" });
+        requestAnimationFrame(() => {
+          if (document.getElementById(`bits-${id}`)) scroll();
+          else requestAnimationFrame(scroll);
+        });
+      }),
+    []
+  );
 
   return (
     <Panel
       title="Status Bits"
-      description="Define the bit layout of unsigned-integer fields (incl. inside nested structs). Saved with the current struct."
+      collapsible
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        // Kapatınca odağı bırak → aynı alana tekrar tıklamak paneli yine açar.
+        if (!next) setFocusedBitField(null);
+      }}
+      summary={
+        <span className="text-muted">
+          {anyBitCapable
+            ? `${bitCapableCount} status-capable ${bitCapableCount === 1 ? "field" : "fields"}`
+            : "no unsigned fields"}
+        </span>
+      }
     >
+      <p className="mb-3 text-xs text-muted">
+        Define the bit layout of unsigned-integer fields (incl. inside nested structs).
+        Saved with the current struct.
+      </p>
       {!anyBitCapable ? (
         <div className="rounded-xl border border-dashed border-border px-4 py-8 text-center">
           <p className="text-sm font-medium">No status-word fields</p>

@@ -1,12 +1,9 @@
 "use client";
 
 import type { LayoutSegment } from "@/engine/segments";
-
-// Same palette as the main visualizer so colors read consistently.
-const COLORS = ["#60a5fa", "#34d399", "#f472b6", "#fbbf24", "#a78bfa", "#fb7185"];
-
-const HATCH =
-  "repeating-linear-gradient(45deg, rgba(120,120,120,.30) 0 4px, transparent 4px 8px)";
+// Same palette + hatch as the main visualizer so it all reads consistently.
+import { FIELD_COLORS as COLORS } from "@/lib/fieldColors";
+import { HATCH } from "@/lib/layoutStyles";
 
 /**
  * Compact, proportional layout strip for side-by-side before/after comparison.
@@ -48,7 +45,7 @@ export default function MiniLayoutStrip({
                 background: COLORS[colorIndexFor(s.fieldId) % COLORS.length],
               }}
               title={`${s.name}: offset ${s.offset}, ${s.size} B`}
-              className="flex items-center justify-center overflow-hidden border-r border-black/10 text-[9px] text-black/80 last:border-r-0"
+              className="flex items-center justify-center overflow-hidden border-r border-black/10 text-[9px] text-field-ink/80 last:border-r-0"
             >
               <span className="truncate px-0.5">{s.name}</span>
             </div>

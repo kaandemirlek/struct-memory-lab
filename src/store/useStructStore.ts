@@ -43,11 +43,12 @@ function removeFieldById(fields: Field[], id: string): Field[] {
     );
 }
 
-// Uygulama açılışında gösterilecek örnek struct.
+// Uygulama açılışında gösterilecek örnek struct. Boş bir struct'a düşüldüğünde
+// "Load example" ile geri yüklenebilsin diye dışa aktarılır.
 // ÖNEMLİ: başlangıç id'leri SABİT olmalı. makeId() Date.now() kullandığı için
 // sunucu ve tarayıcıda farklı değer üretir → hydration uyuşmazlığı. Çalışma
 // anında (client'ta) eklenen alanlar makeId() kullanabilir, sorun değil.
-const initialModel: StructModel = {
+export const EXAMPLE_MODEL: StructModel = {
   name: "Player",
   fields: [
     { id: "f_id", name: "id", type: "uint32_t", arrayLength: 1 },
@@ -71,6 +72,20 @@ const initialModel: StructModel = {
 };
 
 /**
+ * Not yazıldığı andaki alanın parmak izi. Notlar birer KISIT gibi davranır
+ * ("bunu taşıma") — alan sonradan değişirse bu iz sayesinde not "alan bu nottan
+ * sonra değişti" diye işaretlenebilir; not sessizce eskimiş görünmez.
+ */
+export interface AnnotationFieldSnapshot {
+  name: string;
+  /** Gösterim etiketi: "uint32_t" ya da nested struct adı ("Vec3"). */
+  typeLabel: string;
+  arrayLength: number;
+  /** Alanın struct içindeki sırası (reorder/araya ekleme = offset kayması). */
+  index: number;
+}
+
+/**
  * Bir alana (fieldId) ya da versiyona (versionId) bırakılan serbest not.
  * ör. "bunu taşıma, serializer offset'e bağlı". Person B tarafı; paylaşılan
  * types.ts sözleşmesine dokunmamak için burada tanımlı.
@@ -82,6 +97,13 @@ export interface Annotation {
   targetId: string;
   text: string;
   createdAt: string;
+  /** Yalnızca field notları; eski (persist edilmiş) notlarda bulunmayabilir. */
+  fieldSnapshot?: AnnotationFieldSnapshot;
+}
+
+/** Alanın gösterim tipi ("uint32_t" / nested adı). Not parmak izi ile aynı kural. */
+export function fieldTypeLabel(field: Field): string {
+  return field.type === "struct" ? field.nested?.name ?? "struct" : field.type;
 }
 
 interface StructState {
@@ -180,7 +202,7 @@ export const useStructStore = create<StructState>()(
         }));
 
       return {
-        currentModel: initialModel,
+        currentModel: EXAMPLE_MODEL,
         versions: [],
         annotations: [],
         platform: DEFAULT_PLATFORM,
@@ -364,18 +386,36 @@ export const useStructStore = create<StructState>()(
         // Notlar (takım yorumları)
         // -----------------------------------------------------------------
         addAnnotation: (targetKind, targetId, text) =>
-          set((s) => ({
-            annotations: [
-              ...s.annotations,
-              {
-                id: makeId("note"),
-                targetKind,
-                targetId,
-                text,
-                createdAt: new Date().toISOString(),
-              },
-            ],
-          })),
+          set((s) => {
+            // Field notu: alanın ŞU ANKİ hâlini nota işle — sonradan tip/sıra/
+            // dizi değişirse panel "alan bu nottan sonra değişti" gösterebilsin.
+            let fieldSnapshot: AnnotationFieldSnapshot | undefined;
+            if (targetKind === "field") {
+              const index = s.currentModel.fields.findIndex((f) => f.id === targetId);
+              const field = s.currentModel.fields[index];
+              if (field) {
+                fieldSnapshot = {
+                  name: field.name,
+                  typeLabel: fieldTypeLabel(field),
+                  arrayLength: Math.max(1, field.arrayLength ?? 1),
+                  index,
+                };
+              }
+            }
+            return {
+              annotations: [
+                ...s.annotations,
+                {
+                  id: makeId("note"),
+                  targetKind,
+                  targetId,
+                  text,
+                  createdAt: new Date().toISOString(),
+                  fieldSnapshot,
+                },
+              ],
+            };
+          }),
 
         updateAnnotation: (id, text) =>
           set((s) => ({

@@ -106,27 +106,44 @@ export default function VersionSidebar({ mode }: { mode: VersionPanelMode }) {
           <div className="flex w-full flex-1 flex-col items-center gap-1.5 overflow-y-auto">
             {mode === "compare"
               ? compareTargets.map((target) => (
-                  <button
+                  <div
                     key={target.id}
-                    type="button"
-                    onClick={target.setFrom}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      target.setTo();
-                    }}
-                    title={`${target.label}: left-click From, right-click To`}
-                    className={`grid h-8 w-11 shrink-0 place-items-center rounded-md border px-1 text-[10px] font-semibold transition-colors ${
-                      target.from
-                        ? "border-accent bg-accent/15 text-accent"
-                        : target.to
-                          ? "border-emerald-500/60 bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
-                          : "border-border bg-surface-muted text-muted hover:text-foreground"
-                    }`}
+                    className="flex w-full shrink-0 flex-col items-center gap-0.5"
+                    title={target.label}
                   >
-                    <span className="max-w-full truncate">
+                    <span className="max-w-full truncate text-[9px] font-semibold text-muted">
                       {compactLabel(target.label)}
                     </span>
-                  </button>
+                    <span className="flex overflow-hidden rounded-md border border-border">
+                      <button
+                        type="button"
+                        onClick={target.setFrom}
+                        aria-pressed={target.from}
+                        title={`Compare from ${target.label}`}
+                        className={`grid h-6 w-5 place-items-center text-[9px] font-bold transition-colors ${
+                          target.from
+                            ? "bg-accent/20 text-accent"
+                            : "bg-surface-muted text-muted hover:text-foreground"
+                        }`}
+                      >
+                        F
+                      </button>
+                      <span className="w-px self-stretch bg-border" aria-hidden />
+                      <button
+                        type="button"
+                        onClick={target.setTo}
+                        aria-pressed={target.to}
+                        title={`Compare to ${target.label}`}
+                        className={`grid h-6 w-5 place-items-center text-[9px] font-bold transition-colors ${
+                          target.to
+                            ? "bg-emerald-500/20 text-emerald-600 dark:text-emerald-400"
+                            : "bg-surface-muted text-muted hover:text-foreground"
+                        }`}
+                      >
+                        T
+                      </button>
+                    </span>
+                  </div>
                 ))
               : editTargets.map((target) => (
                   <button
@@ -148,16 +165,6 @@ export default function VersionSidebar({ mode }: { mode: VersionPanelMode }) {
                 ))}
           </div>
 
-          {mode === "compare" && (
-            <div className="flex shrink-0 flex-col items-center gap-1 pt-1 text-[9px] font-semibold uppercase text-muted">
-              <span className="rounded border border-accent/60 bg-accent/15 px-1 text-accent">
-                F
-              </span>
-              <span className="rounded border border-emerald-500/60 bg-emerald-500/15 px-1 text-emerald-600 dark:text-emerald-400">
-                T
-              </span>
-            </div>
-          )}
         </div>
       ) : (
         <VersionPanel

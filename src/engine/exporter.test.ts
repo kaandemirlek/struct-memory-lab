@@ -160,7 +160,7 @@ describe("exportCpp — nested structs & bit-fields (merged features)", () => {
     expect(out).toContain("static_assert(sizeof(Player)");
   });
 
-  it("emits portable bit-field mask/shift macros", () => {
+  it("emits human-readable bit meaning comments (not macros)", () => {
     const model = struct("Player", [
       {
         id: "1",
@@ -168,12 +168,62 @@ describe("exportCpp — nested structs & bit-fields (merged features)", () => {
         type: "uint32_t",
         arrayLength: 1,
         bitFields: [
-          { id: "b1", name: "alive", wordIndex: 0, startBit: 0, width: 1, meanings: [] },
+          {
+            id: "b1",
+            name: "alive",
+            wordIndex: 0,
+            startBit: 0,
+            width: 1,
+            kind: "flag",
+            meanings: [
+              { value: 0, label: "DEAD" },
+              { value: 1, label: "ALIVE" },
+            ],
+          },
+          { id: "b2", name: "mode", wordIndex: 0, startBit: 1, width: 3, kind: "enum", meanings: [] },
         ],
       },
     ]);
     const out = exportCpp(model);
-    expect(out).toContain("#define PLAYER_STATUS_ALIVE_SHIFT 0u");
-    expect(out).toContain("PLAYER_STATUS_ALIVE_MASK");
+    expect(out).toContain("// --- status bit meanings ---");
+    expect(out).toMatch(/\/\/ bit 0\s+-> meaning: alive \(flag\), 0=DEAD, 1=ALIVE/);
+    expect(out).toMatch(/\/\/ bits 1-3\s+-> meaning: mode \(enum\)/);
+    expect(out).not.toContain("#define");
+  });
+
+  it("array status words prefix each line with the word index", () => {
+    const model = struct("T", [
+      {
+        id: "1",
+        name: "statusWords",
+        type: "uint32_t",
+        arrayLength: 3,
+        bitFields: [
+          { id: "b1", name: "irFail", wordIndex: 2, startBit: 4, width: 1, kind: "flag", meanings: [] },
+        ],
+      },
+    ]);
+    expect(exportCpp(model)).toMatch(/\/\/ word 2, bit 4\s+-> meaning: irFail \(flag\)/);
+  });
+});
+
+describe("exportCpp — asserts toggle & no embedded model", () => {
+  const model = struct("Player", [
+    { id: "1", name: "id", type: "uint32_t", arrayLength: 1 },
+  ]);
+
+  it("{ asserts: false } omits static_asserts and the <cstddef> include", () => {
+    const out = exportCpp(model, { asserts: false });
+    expect(out).not.toContain("static_assert");
+    expect(out).not.toContain("#include <cstddef>"); // offsetof gerekmiyor
+    expect(out).toContain("struct Player {");
+  });
+
+  it("asserts are included by default", () => {
+    expect(exportCpp(model)).toContain("static_assert(sizeof(Player)");
+  });
+
+  it("no longer embeds the machine-readable model line (JSON is the lossless path)", () => {
+    expect(exportCpp(model)).not.toContain("struct-memory-lab-model:");
   });
 });

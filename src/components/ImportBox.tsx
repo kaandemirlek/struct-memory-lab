@@ -79,7 +79,7 @@ export default function ImportBox() {
         open={open}
         onClose={() => setOpen(false)}
         title="Import struct"
-        description="Paste a C++ header or JSON. Files exported from here (either format) re-import exactly — including Status Bits."
+        description="Paste a C++ header or JSON. JSON files exported from here re-import exactly — including Status Bits."
         size="lg"
         footer={
           <>

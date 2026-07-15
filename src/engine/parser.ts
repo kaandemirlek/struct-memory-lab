@@ -284,6 +284,8 @@ function parseBody(body: string, ctx: ParseContext): Field[] {
 }
 
 // Header'a gömülü "// struct-memory-lab-model:{...}" satırını (varsa) çözer.
+// NOT: Yeni exportCpp bu satırı artık ÜRETMİYOR (kayıpsız yol = JSON); bu okuma,
+// daha önce export edilmiş .hpp dosyaları için geri uyumluluk olarak kalıyor.
 // Bozuk/eksik veri → null (çağıran normal C++ parse'a düşer).
 function extractEmbeddedModel(code: string): StructModel | null {
   for (const line of code.split(/\r?\n/)) {
@@ -326,8 +328,8 @@ function parsePackValue(s: string): number {
 }
 
 export const parseCpp: ParseCpp = (code) => {
-  // Bu araçtan export edilen header'da gömülü model satırı varsa onu KAYIPSIZ
-  // döndür (Status Bits, bit anlamları dahil). Elle yazılmış header'larda yok.
+  // ESKİ export'lardan gelen gömülü model satırı varsa onu KAYIPSIZ döndür
+  // (geri uyumluluk). Yeni export'lar ve elle yazılmış header'lar normal parse edilir.
   const embedded = extractEmbeddedModel(code);
   if (embedded) return embedded;
 

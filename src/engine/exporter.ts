@@ -2,21 +2,25 @@
 // exporter.ts  ← PERSON B
 // ============================================================================
 // StructModel'i (1) geçerli, derlenebilir C++ .hpp metnine ve (2) yapılandırılmış
-// JSON'a çevirir. C++ çıktısı nested struct'ları, bit-alanı makrolarını ve ABI
-// kilidi static_assert'lerini içerir; opsiyonel olarak alan başına offset/size
-// yorumları eklenir.
+// JSON'a çevirir. C++ çıktısı nested struct'ları, bit anlamı yorumlarını ve
+// (opsiyonel) ABI kilidi static_assert'lerini içerir; opsiyonel olarak alan
+// başına offset/size yorumları eklenir.
+//
+// NOT: Kayıpsız (Status Bits dahil) geri yükleme JSON formatıyla yapılır;
+// .hpp çıktısı insan/derleyici içindir, model verisi gömülmez.
 // ============================================================================
 
 import type { CppPrimitive, Field, Platform, StructModel } from "@/types";
 import { DEFAULT_PLATFORM } from "@/types";
-import { bitsPerWord, isUnsignedInt } from "@/engine/bitfields";
+import { isUnsignedInt } from "@/engine/bitfields";
 import { computeLayout } from "@/engine/layout";
-import { EMBED_MARKER } from "@/engine/embed";
 
 /** C++ .hpp dışa aktarımı için seçenekler. */
 export interface ExportCppOptions {
   /** Alan başına offset/size yorumları + sizeof özeti ekle (varsayılan: true). */
   comments?: boolean;
+  /** sizeof/offsetof static_assert blokları (ABI kilidi) ekle (varsayılan: true). */
+  asserts?: boolean;
   /** Offset/size yorumları ve static_assert'ler bu platforma göre hesaplanır. */
   platform?: Platform;
 }
@@ -70,31 +74,17 @@ function formatField(field: Field): string {
 const padComment = (n: number) =>
   `${INDENT}// ${n} ${n === 1 ? "byte" : "bytes"} padding`;
 
-/** Bir adı geçerli, büyük harfli C makro tanımlayıcısına çevirir. */
-function macroIdent(s: string): string {
-  return (s.trim() || "X").replace(/[^A-Za-z0-9_]/g, "_").toUpperCase();
-}
-
 /**
- * width bit uzunluğundaki "hepsi 1" maskesinin hex gösterimi (0x öneki olmadan).
- * BigInt kullanmadan (ES hedefi düşük) nibble nibble kurulur; uint64_t (64 bit) güvenli.
- */
-function onesMaskHex(width: number): string {
-  if (width <= 0) return "0";
-  const fullNibbles = Math.floor(width / 4);
-  const remBits = width % 4;
-  const lead = remBits > 0 ? ((1 << remBits) - 1).toString(16) : "";
-  return (lead + "f".repeat(fullNibbles)).toUpperCase();
-}
-
-/**
- * Bir alanın bit tanımlarını taşınabilir #define MASK/SHIFT makrolarına çevirir.
- * C bitfield DEĞİL — bit yerleşimi derleyiciye/ABI'ye bağımlı olmasın diye açık
- * maske makroları kullanılır:  (statusWord & FOO_MASK) >> FOO_SHIFT.
+ * Bir alanın bit tanımlarını insan-okur yorum satırlarına çevirir:
+ *
+ *   // --- status bit meanings ---
+ *   // bit 0    -> meaning: alive (flag), 0=DEAD, 1=ALIVE
+ *   // bits 1-3 -> meaning: mode (enum)
+ *
+ * Dizi alanlarında satır başına word indeksi eklenir ("word 2, bit 0 -> ...").
  * Yalnızca unsigned integer alanlarda (dolu bitFields) çalışır; diğerlerini atlar.
  */
-function formatBitMacros(model: StructModel): string[] {
-  const structPrefix = macroIdent(model.name);
+function formatBitComments(model: StructModel): string[] {
   const lines: string[] = [];
 
   for (const field of model.fields) {
@@ -102,27 +92,32 @@ function formatBitMacros(model: StructModel): string[] {
     if (!bits || bits.length === 0) continue;
     if (!isUnsignedInt(field.type)) continue; // bit alanları yalnızca unsigned int'te anlamlı
 
-    const bpw = bitsPerWord(field); // 32/64 → literal suffix'i belirler
-    const suffix = bpw > 32 ? "ull" : "u"; // 64-bit word'de maske ULL olmalı
     const isArray = field.arrayLength > 1;
+    const sorted = [...bits].sort(
+      (a, b) => a.wordIndex - b.wordIndex || a.startBit - b.startBit
+    );
 
-    lines.push(`// --- ${field.name} bit fields (mask macros) ---`);
+    // Önce sol etiketleri üret ("bit 0" / "bits 1-5" / "word 2, bit 0"),
+    // sonra hizalı biçimde "-> meaning: ..." ekle (okunabilirlik için).
+    const rows = sorted.map((b) => {
+      const range =
+        b.width === 1
+          ? `bit ${b.startBit}`
+          : `bits ${b.startBit}-${b.startBit + b.width - 1}`;
+      const label = isArray ? `word ${b.wordIndex}, ${range}` : range;
 
-    for (const b of bits) {
-      const base = `${structPrefix}_${macroIdent(field.name)}_${macroIdent(b.name)}`;
-      const maskHex = "0x" + onesMaskHex(b.width);
-
-      // Yorum: kind + (dizi ise word) + değer anlamları.
       const kind = b.kind ?? (b.width === 1 ? "flag" : "uint");
-      const parts: string[] = [kind];
-      if (isArray) parts.push(`word ${b.wordIndex}`);
+      let meaning = `${b.name} (${kind})`;
       if (b.meanings && b.meanings.length > 0) {
-        parts.push(b.meanings.map((m) => `${m.value}=${m.label}`).join(", "));
+        meaning += `, ${b.meanings.map((m) => `${m.value}=${m.label}`).join(", ")}`;
       }
-      const comment = `  // ${parts.join(", ")}`;
+      return { label, meaning };
+    });
 
-      lines.push(`#define ${base}_SHIFT ${b.startBit}u`);
-      lines.push(`#define ${base}_MASK (${maskHex}${suffix} << ${b.startBit})${comment}`);
+    const width = Math.max(...rows.map((r) => r.label.length));
+    lines.push(`// --- ${field.name} bit meanings ---`);
+    for (const r of rows) {
+      lines.push(`// ${r.label.padEnd(width)} -> meaning: ${r.meaning}`);
     }
   }
 
@@ -211,6 +206,7 @@ function collectNested(
 
 export function exportCpp(model: StructModel, options: ExportCppOptions = {}): string {
   const withComments = options.comments ?? true;
+  const withAsserts = options.asserts ?? true;
   const platform = options.platform ?? DEFAULT_PLATFORM;
   const out: string[] = ["#pragma once"];
 
@@ -220,19 +216,22 @@ export function exportCpp(model: StructModel, options: ExportCppOptions = {}): s
 
   const includes: string[] = [];
   if (needsCstdint(model)) includes.push("#include <cstdint>");
-  if (needsCstddef(model, nestedDefs)) includes.push("#include <cstddef>"); // offsetof için
+  // offsetof yalnızca static_assert'lerde kullanılır.
+  if (withAsserts && needsCstddef(model, nestedDefs)) includes.push("#include <cstddef>");
   if (includes.length > 0) out.push("", ...includes);
 
-  // Bir struct tanımını, yerleşim doğrulamasını ve (varsa) bit makrolarını ekler.
+  // Bir struct tanımını, (opsiyonel) yerleşim doğrulamasını ve bit yorumlarını ekler.
   // #pragma pack yalnızca tanımı sarar (static_assert'ler pack'ten etkilenmez).
   const pushStruct = (m: StructModel): void => {
     if (m.pack) out.push("", `#pragma pack(push, ${m.pack})`);
     out.push(m.pack ? "" : "", ...formatStruct(m, withComments, platform));
     if (m.pack) out.push("#pragma pack(pop)");
-    const asserts = formatStaticAsserts(m, platform);
-    if (asserts.length > 0) out.push("", ...asserts);
-    const macros = formatBitMacros(m);
-    if (macros.length > 0) out.push("", ...macros);
+    if (withAsserts) {
+      const asserts = formatStaticAsserts(m, platform);
+      if (asserts.length > 0) out.push("", ...asserts);
+    }
+    const bitComments = formatBitComments(m);
+    if (bitComments.length > 0) out.push("", ...bitComments);
   };
 
   // Önce nested struct tanımları (kullanılmadan önce tanımlanmalı), sonra ana struct.
@@ -246,15 +245,6 @@ export function exportCpp(model: StructModel, options: ExportCppOptions = {}): s
       `// sizeof = ${layout.totalSize} bytes, alignment = ${layout.alignment} bytes, padding = ${layout.totalPadding} bytes (${platform})`
     );
   }
-
-  // Geri-yükleme verisi: bu header tekrar import edilince modeli (Status Bits, bit
-  // anlamları vb. DAHİL) BİREBİR geri yükler. Yalnızca bir yorum olduğu için C++
-  // derlemesini etkilemez; elle yazılmış header'larda bulunmaz.
-  out.push(
-    "",
-    "// --- struct-memory-lab: embedded model (re-importing restores everything, incl. Status Bits — do not delete) ---",
-    `${EMBED_MARKER}${JSON.stringify(model)}`
-  );
 
   return out.join("\n") + "\n";
 }

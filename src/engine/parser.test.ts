@@ -264,12 +264,20 @@ describe("parseModelJson (JSON round-trip)", () => {
     expect(restored).toEqual(model);
   });
 
-  it("C++ .hpp round-trip'i de gömülü model sayesinde KAYIPSIZ (Status Bits dahil)", () => {
-    // exportCpp header'a "// struct-memory-lab-model:{...}" satırını gömer;
-    // parseCpp bunu görüp modeli birebir geri yükler.
-    expect(parseCpp(exportCpp(model))).toEqual(model);
-    // yorumsuz export de aynı şekilde geri yüklenmeli.
-    expect(parseCpp(exportCpp(model, { comments: false }))).toEqual(model);
+  it("yeni .hpp export'u gömülü model İÇERMEZ; normal C++ olarak parse edilir", () => {
+    // Kayıpsız yol artık yalnızca JSON. .hpp çıktısı gömülü model taşımaz;
+    // geri import edilirse alanlar gelir ama bit SEMANTİĞİ (isim/anlam) gelmez.
+    const out = exportCpp(model);
+    expect(out).not.toContain("struct-memory-lab-model:");
+    const reparsed = parseCpp(out);
+    expect(reparsed.fields.map((f) => f.name)).toEqual(
+      model.fields.map((f) => f.name)
+    );
+  });
+
+  it("ESKİ export'lardaki gömülü model satırı hâlâ tanınır (geri uyumluluk)", () => {
+    const legacy = `struct X { int a; };\n// struct-memory-lab-model:${JSON.stringify(model)}\n`;
+    expect(parseCpp(legacy)).toEqual(model);
   });
 
   it("gömülü satır YOKken elle yazılmış header normal (bit'siz) parse edilir", () => {

@@ -227,7 +227,7 @@ export default function VersionPanel({
             Save a version in Edit Layout before comparing.
           </p>
         ) : (
-          <ul className="space-y-2 lg:max-h-[calc(100vh-250px)] lg:overflow-y-auto lg:pr-1">
+          <ul className="max-h-[calc(100vh-250px)] space-y-2 overflow-y-auto pr-1">
             {versions.map((v) => {
               const isFrom = fromVersionId === v.id;
               const isTo = toVersionId === v.id;
@@ -362,7 +362,7 @@ export default function VersionPanel({
         </>
       }
     >
-      <ul className="space-y-2 lg:max-h-[calc(100vh-250px)] lg:overflow-y-auto lg:pr-1">
+      <ul className="max-h-[calc(100vh-250px)] space-y-2 overflow-y-auto pr-1">
         <LiveCard
           model={current}
           active={previewVersionId === null}

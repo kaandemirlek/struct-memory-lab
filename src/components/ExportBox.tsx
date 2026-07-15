@@ -17,6 +17,7 @@ export default function ExportBox() {
   const [open, setOpen] = useState(false);
   const [format, setFormat] = useState<Format>("cpp");
   const [comments, setComments] = useState(true);
+  const [asserts, setAsserts] = useState(true);
   const [copied, setCopied] = useState(false);
 
   const issues = validateStruct(model);
@@ -24,7 +25,7 @@ export default function ExportBox() {
 
   const isCpp = format === "cpp";
   const code = isCpp
-    ? exportCpp(model, { comments, platform })
+    ? exportCpp(model, { comments, asserts, platform })
     : exportModelJson(model, platform);
   const fileName = `${model.name.trim() || "Struct"}.${isCpp ? "hpp" : "json"}`;
   // C++ requires a valid struct; JSON is just the model, so it's always exportable.
@@ -100,15 +101,29 @@ export default function ExportBox() {
             {tab("json", "JSON")}
           </div>
           {isCpp && (
-            <label className="flex cursor-pointer items-center gap-2 text-xs text-muted">
-              <input
-                type="checkbox"
-                checked={comments}
-                onChange={(e) => setComments(e.target.checked)}
-                className="accent-accent"
-              />
-              Offset/size comments
-            </label>
+            <div className="flex flex-wrap items-center gap-4">
+              <label className="flex cursor-pointer items-center gap-2 text-xs text-muted">
+                <input
+                  type="checkbox"
+                  checked={comments}
+                  onChange={(e) => setComments(e.target.checked)}
+                  className="accent-accent"
+                />
+                Offset/size comments
+              </label>
+              <label
+                className="flex cursor-pointer items-center gap-2 text-xs text-muted"
+                title="Compile-time ABI checks: sizeof/offsetof static_assert lines"
+              >
+                <input
+                  type="checkbox"
+                  checked={asserts}
+                  onChange={(e) => setAsserts(e.target.checked)}
+                  className="accent-accent"
+                />
+                static_assert checks
+              </label>
+            </div>
           )}
         </div>
 

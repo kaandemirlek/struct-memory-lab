@@ -95,6 +95,63 @@ describe("diffVersions", () => {
       { kind: "added", fieldName: "score", detail: "score: int64_t" },
     ]);
   });
+
+  it("reports nested changes with their full field path", () => {
+    const a: StructModel = {
+      name: "Player",
+      fields: [
+        {
+          id: "position",
+          name: "position",
+          type: "struct",
+          arrayLength: 1,
+          nested: struct([f("x", "x", "float"), f("y", "y", "float")]),
+        },
+      ],
+    };
+    const b: StructModel = {
+      name: "Player",
+      fields: [
+        {
+          id: "position",
+          name: "position",
+          type: "struct",
+          arrayLength: 1,
+          nested: struct([
+            f("x", "x", "float"),
+            f("y", "y", "float"),
+            f("z", "z", "float"),
+          ]),
+        },
+      ],
+    };
+
+    expect(diffVersions(a, b)).toContainEqual({
+      kind: "added",
+      fieldName: "position.z",
+      detail: "position.z: float",
+    });
+  });
+
+  it("matches unchanged nested fields across separate parses", () => {
+    const makePosition = (prefix: string, includeZ: boolean): Field => ({
+      id: `${prefix}-position`,
+      name: "position",
+      type: "struct",
+      arrayLength: 1,
+      nested: struct([
+        f(`${prefix}-x`, "x", "float"),
+        f(`${prefix}-y`, "y", "float"),
+        ...(includeZ ? [f(`${prefix}-z`, "z", "float")] : []),
+      ]),
+    });
+
+    expect(
+      diffVersions(struct([makePosition("a", false)]), struct([makePosition("b", true)]))
+    ).toEqual([
+      { kind: "added", fieldName: "position.z", detail: "position.z: float" },
+    ]);
+  });
 });
 
 describe("summarizeDiff", () => {

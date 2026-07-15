@@ -27,6 +27,13 @@ export default function AnnotationsPanel() {
   ];
 
   const [target, setTarget] = useState(options[0]?.value ?? "");
+  // Hedef listesi model/versiyonlarla birlikte değişir (import, Load example,
+  // restore → alan id'leri yenilenir). State'te kalan eski bir id, select'te
+  // ilk seçenek seçiliymiş GİBİ görünür ama submit var olmayan hedefe yazar
+  // ("(removed)" notu). Geçersizleşen seçim ilk geçerli seçeneğe düşürülür.
+  const effectiveTarget = options.some((o) => o.value === target)
+    ? target
+    : options[0]?.value ?? "";
   const [text, setText] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -67,8 +74,11 @@ export default function AnnotationsPanel() {
 
   const submit = () => {
     const trimmed = text.trim();
-    if (!trimmed || !target) return;
-    const [kind, id] = target.split(":");
+    if (!trimmed || !effectiveTarget) return;
+    // Yalnızca İLK iki nokta ayırıcıdır — id'nin kendisi bölünmesin.
+    const sep = effectiveTarget.indexOf(":");
+    const kind = effectiveTarget.slice(0, sep);
+    const id = effectiveTarget.slice(sep + 1);
     if (kind !== "field" && kind !== "version") return;
     addAnnotation(kind, id, trimmed);
     setText("");
@@ -107,7 +117,7 @@ export default function AnnotationsPanel() {
       ) : (
         <div className="mb-3 flex flex-col gap-2 sm:flex-row">
           <select
-            value={target}
+            value={effectiveTarget}
             onChange={(e) => setTarget(e.target.value)}
             aria-label="Note target"
             className="rounded-lg border border-border bg-surface-muted px-2 py-1.5 text-sm outline-none focus:border-accent"

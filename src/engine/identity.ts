@@ -31,6 +31,7 @@ import type { Field, StructModel } from "@/types";
 export function alignFieldIds(base: StructModel, target: StructModel): StructModel {
   const baseIds = new Set(base.fields.map((f) => f.id));
   const targetIds = new Set(target.fields.map((f) => f.id));
+  const targetById = new Map(target.fields.map((f) => [f.id, f]));
 
   // target'ta id ile eşleşmemiş alanlar, isme göre (yalnızca TEKİL isimler —
   // yinelenen isimlerde hangi alanın kastedildiği belirsizdir, dokunma).
@@ -49,12 +50,31 @@ export function alignFieldIds(base: StructModel, target: StructModel): StructMod
 
   let changed = false;
   const fields = base.fields.map((fb) => {
-    if (targetIds.has(fb.id)) return fb; // id eşleşmesi öncelikli
-    const match = candidatesByName.get(fb.name);
+    // id eşleşmesi her zaman öncelikli; yoksa tekil isim fallback'i kullanılır.
+    const idMatch = targetIds.has(fb.id) ? targetById.get(fb.id) : undefined;
+    const nameMatch = idMatch ? undefined : candidatesByName.get(fb.name);
+    const match = idMatch ?? nameMatch;
     if (!match) return fb;
-    candidatesByName.delete(fb.name); // birebir: her target alanı en fazla bir kez
-    changed = true;
-    return { ...fb, id: match.id };
+    if (nameMatch) candidatesByName.delete(fb.name); // birebir eşleşme
+
+    let next = fb;
+    if (fb.id !== match.id) {
+      next = { ...next, id: match.id };
+      changed = true;
+    }
+
+    // Nested struct'lar da ayrı parse'larda taze id'ler alır. Eşleşen parent'ın
+    // iç modelini aynı kuralla özyinelemeli hizala ki position.z gibi yollar
+    // removed+added gürültüsü üretmeden gerçek değişikliği gösterebilsin.
+    if (fb.type === "struct" && match.type === "struct" && fb.nested && match.nested) {
+      const nested = alignFieldIds(fb.nested, match.nested);
+      if (nested !== fb.nested) {
+        next = { ...next, nested };
+        changed = true;
+      }
+    }
+
+    return next;
   });
 
   return changed ? { ...base, fields } : base;

@@ -741,16 +741,12 @@ function WrappedBand({
               // Seçim varken: seçili alan aksan konturu alır, kalan her şey soluklaşır.
               const dimmed = selectedId !== null && s.fieldId !== selectedId;
               // Compare modunda tıklama = seç/vurgula · canlı modda unsigned alan → Status Bits.
+              // Ekran KAYMAZ: odaklanan alanın editörü Status Bits listesinin en üstüne alınır.
               const handleClick =
                 onSelect && s.fieldId
                   ? () => onSelect(s.fieldId!)
                   : isBits && s.fieldId
-                    ? () => {
-                        useStructStore.getState().setFocusedBitField(s.fieldId!);
-                        document
-                          .getElementById(`bits-${s.fieldId}`)
-                          ?.scrollIntoView({ behavior: "smooth", block: "start" });
-                      }
+                    ? () => useStructStore.getState().setFocusedBitField(s.fieldId!)
                     : undefined;
               const chunkStyle = { width: pct(c.size), background: colorOf(s) };
               const chunkClass = `relative flex shrink-0 flex-col items-center justify-center overflow-hidden border-r border-black/10 text-xs text-field-ink last:border-r-0 ${
@@ -1467,19 +1463,12 @@ function fieldBlockParts(fl: FieldLayout, onToggle: () => void) {
   const expandable = fl.type === "struct" && !!fl.nested;
   const isBitField = isUnsignedInt(fl.type);
 
-  // struct → aç/kapat · unsigned → o alanı Status Bits'te odakla + editörüne kaydır.
-  // Panel kapalıysa senkron kaydırma hedefi bulamaz; BitFieldPanel odak değişimini
-  // görüp önce açılır, sonra kendisi kaydırır. Panel açıkken senkron kaydırma
-  // her tıklamada çalışır (aynı alana tekrar tıklayınca yine gider).
+  // struct → aç/kapat · unsigned → o alanı Status Bits'te odakla. Ekran KAYMAZ:
+  // BitFieldPanel odaklanan alanın editörünü listenin EN ÜSTÜNE alır ve paneli açar.
   const handleClick = expandable
     ? onToggle
     : isBitField
-      ? () => {
-          useStructStore.getState().setFocusedBitField(fl.fieldId);
-          document
-            .getElementById(`bits-${fl.fieldId}`)
-            ?.scrollIntoView({ behavior: "smooth", block: "start" });
-        }
+      ? () => useStructStore.getState().setFocusedBitField(fl.fieldId)
       : undefined;
 
   const title = `${fieldLabel(fl)}: ${fl.typeName ?? fl.type} — offset ${fl.offset}, ${fl.size} bytes (drag: reorder${expandable ? " · click: expand/collapse" : isBitField ? " · click: Status Bits" : ""})`;

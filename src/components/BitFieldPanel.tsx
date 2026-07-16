@@ -728,12 +728,29 @@ function hasBitCapable(field: Field): boolean {
 
 const fieldArr = (field: Field) => (field.arrayLength > 1 ? `[${field.arrayLength}]` : "");
 
+// Bu alan (ya da nested alt-ağacı) verilen id'yi içeriyor mu?
+function containsField(field: Field, id: string): boolean {
+  if (field.id === id) return true;
+  if (field.type === "struct" && field.nested) {
+    return field.nested.fields.some((f) => containsField(f, id));
+  }
+  return false;
+}
+
 // Alan ağacını gezer: yalnızca bit-tanımlanabilir (unsigned) alanları editör olarak
 // gösterir; nested struct'lara inip içlerindeki unsigned alanları da düzenlenebilir kılar.
+// Odaklanan alan (Memory Layout'ta tıklanan) listenin EN ÜSTÜNE alınır — ekran
+// kaydırmak yerine editör kullanıcının ayağına gelir. Kararlı sıralama sayesinde
+// kalan alanların kendi aralarındaki sırası değişmez; nested gruplarda da işler.
 function FieldTree({ fields, focusedId }: { fields: Field[]; focusedId: string | null }) {
+  const ordered = focusedId
+    ? [...fields].sort(
+        (a, b) => Number(containsField(b, focusedId)) - Number(containsField(a, focusedId))
+      )
+    : fields;
   return (
     <div className="space-y-4">
-      {fields.map((field) => {
+      {ordered.map((field) => {
         if (isUnsignedInt(field.type)) {
           return (
             <FieldBitEditor key={field.id} field={field} focused={field.id === focusedId} />
@@ -770,23 +787,14 @@ export default function BitFieldPanel() {
   const fieldsById = collectFieldsById(model.fields);
 
   // Yerleşim bandında bir unsigned bloğa tıklanınca (store'daki odak değişince):
-  // paneli aç ve ilgili editöre kaydır. Store aboneliği üzerinden dinlenir —
-  // panel içeriği yalnızca açıkken render edildiğinden kaydırma frame'e ertelenir
-  // (ilk frame'de hedef henüz yoksa bir frame daha denenir).
+  // paneli aç. Ekran KAYDIRILMAZ — bunun yerine FieldTree, odaklanan alanın
+  // editörünü listenin en üstüne alır (kullanıcı gözünü oynatmadan orada bulur).
   useEffect(
     () =>
       useStructStore.subscribe((state, prev) => {
         const id = state.focusedBitFieldId;
         if (!id || id === prev.focusedBitFieldId) return;
         setOpen(true);
-        const scroll = () =>
-          document
-            .getElementById(`bits-${id}`)
-            ?.scrollIntoView({ behavior: "smooth", block: "center" });
-        requestAnimationFrame(() => {
-          if (document.getElementById(`bits-${id}`)) scroll();
-          else requestAnimationFrame(scroll);
-        });
       }),
     []
   );

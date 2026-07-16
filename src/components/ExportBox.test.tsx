@@ -29,5 +29,11 @@ describe("<ExportBox />", () => {
     expect(text).toContain("#pragma once");
     expect(text).toContain("struct Player {");
     expect(text).toContain("static_assert(sizeof(Player) == 16");
+    expect(text).toContain("Use JSON for a guaranteed lossless re-import.");
+
+    fireEvent.click(screen.getByRole("button", { name: "JSON" }));
+    expect(dialog.textContent).toContain(
+      "JSON preserves the complete editable model for a lossless re-import."
+    );
   });
 });

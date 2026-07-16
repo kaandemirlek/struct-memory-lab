@@ -127,6 +127,13 @@ export default function ExportBox() {
           )}
         </div>
 
+        <p className="mb-3 text-xs text-muted">
+          {isCpp
+            ? "C++ headers are intended for generated code. Use JSON for a guaranteed lossless re-import."
+            : "JSON preserves the complete editable model for a lossless re-import."
+          }
+        </p>
+
         {blocked && (
           <div className="mb-3 rounded-lg border border-danger/30 bg-danger/10 p-3 text-sm text-danger">
             <p className="mb-1 font-medium">

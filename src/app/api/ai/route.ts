@@ -15,8 +15,14 @@
 // ============================================================================
 
 import { renderMock } from "@/lib/ai/mock";
+import {
+  describeAiAction,
+  interpretAiAction,
+  validateContextAiAction,
+} from "@/lib/ai/actions";
+import { EDITOR_TOOLS, parseEditorToolCall } from "@/lib/ai/editorTools";
 import { buildMessages } from "@/lib/ai/prompt";
-import type { AiRequest, AiResponse } from "@/lib/ai/types";
+import type { AiAction, AiRequest, AiResponse } from "@/lib/ai/types";
 
 // Route Handlers aren't cached for POST; make the intent explicit anyway.
 export const dynamic = "force-dynamic";
@@ -27,7 +33,7 @@ function isLive(): boolean {
   return process.env.AI_MODE === "live" && Boolean(process.env.OPENAI_API_KEY);
 }
 
-async function callOpenAI(req: AiRequest): Promise<{ text: string }> {
+async function callOpenAI(req: AiRequest): Promise<{ text: string; action?: AiAction }> {
   const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
   const res = await fetch(OPENAI_URL, {
     method: "POST",
@@ -38,6 +44,8 @@ async function callOpenAI(req: AiRequest): Promise<{ text: string }> {
     body: JSON.stringify({
       model,
       messages: buildMessages(req),
+      tools: EDITOR_TOOLS,
+      tool_choice: "auto",
       temperature: 0.3,
       max_tokens: 500,
     }),
@@ -47,8 +55,14 @@ async function callOpenAI(req: AiRequest): Promise<{ text: string }> {
     throw new Error(`OpenAI responded ${res.status}${detail ? `: ${detail.slice(0, 300)}` : ""}`);
   }
   const data = await res.json();
-  const text = data?.choices?.[0]?.message?.content?.trim();
-  if (!text) throw new Error("OpenAI returned no content");
+  const message = data?.choices?.[0]?.message;
+  const action = parseEditorToolCall(message?.tool_calls?.[0]);
+  if (action) {
+    const error = validateContextAiAction(req.payload.context, action);
+    return error ? { text: error } : { text: describeAiAction(action), action };
+  }
+  const text = message?.content?.trim();
+  if (!text) throw new Error("OpenAI returned no content or valid editor action");
   return { text };
 }
 
@@ -78,11 +92,29 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: "Unsupported AI request" }, { status: 400 });
   }
 
+  const latestUserMessage = [...body.payload.messages]
+    .reverse()
+    .find((message) => message.role === "user");
+  const interpretation = interpretAiAction(
+    body.payload.context,
+    latestUserMessage?.content ?? ""
+  );
+  if (interpretation.matched) {
+    if ("error" in interpretation) {
+      return Response.json({ text: interpretation.error, mode: "mock" } satisfies AiResponse);
+    }
+    return Response.json({
+      text: interpretation.text,
+      mode: "mock",
+      action: interpretation.action,
+    } satisfies AiResponse);
+  }
+
   // Live path first; on any error, fall through to the deterministic mock.
   if (isLive()) {
     try {
-      const { text } = await callOpenAI(body);
-      return Response.json({ text, mode: "live" } satisfies AiResponse);
+      const { text, action } = await callOpenAI(body);
+      return Response.json({ text, mode: "live", action } satisfies AiResponse);
     } catch (err) {
       // Degrade to mock, but log WHY so a live-mode test is diagnosable
       // (bad key = 401, blocked/no proxy = ENOTFOUND/ECONNREFUSED/timeout,

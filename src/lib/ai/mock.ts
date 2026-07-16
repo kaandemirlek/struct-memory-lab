@@ -69,7 +69,7 @@ function describeBits(c: StructContext): string {
 
 function describeFields(c: StructContext): string {
   const list = c.fields
-    .map((f) => `${f.name} (${f.type}${f.arrayLength > 1 ? `[${f.arrayLength}]` : ""}) @${f.offset}`)
+    .map((f) => `${f.path ?? f.name} (${f.type}${f.arrayLength > 1 ? `[${f.arrayLength}]` : ""}) @${f.offset}`)
     .join(", ");
   return `"${c.name}" has ${c.fields.length} field${c.fields.length === 1 ? "" : "s"}: ${list}.`;
 }

@@ -151,7 +151,7 @@ interface StructState {
   // bit alanları (status word semantiği)
   addBitField: (
     fieldId: string,
-    placement?: Partial<Pick<BitField, "wordIndex" | "startBit" | "width">>
+    draft?: Partial<Omit<BitField, "id">>
   ) => void;
   updateBitField: (fieldId: string, bitId: string, patch: Partial<Omit<BitField, "id">>) => void;
   removeBitField: (fieldId: string, bitId: string) => void;
@@ -272,7 +272,7 @@ export const useStructStore = create<StructState>()(
           }),
 
         // --- bit alanları (status word semantiği) ---
-        addBitField: (fieldId, placement) =>
+        addBitField: (fieldId, draft) =>
           editModel((m) => ({
             ...m,
             fields: mapFieldById(m.fields, fieldId, (f) => {
@@ -283,12 +283,13 @@ export const useStructStore = create<StructState>()(
                 .reduce((mx, b) => Math.max(mx, b.startBit + b.width), 0);
               const nb: BitField = {
                 id: makeId("bit"),
-                name: `status_${placement?.wordIndex ?? 0}_${placement?.startBit ?? nextStart}`,
-                wordIndex: placement?.wordIndex ?? 0,
-                startBit: placement?.startBit ?? nextStart,
-                width: placement?.width ?? 1,
-                meanings: [],
+                name: draft?.name ?? `status_${draft?.wordIndex ?? 0}_${draft?.startBit ?? nextStart}`,
+                wordIndex: draft?.wordIndex ?? 0,
+                startBit: draft?.startBit ?? nextStart,
+                width: draft?.width ?? 1,
+                meanings: draft?.meanings ?? [],
               };
+              if (draft?.kind) nb.kind = draft.kind;
               return { ...f, bitFields: [...existing, nb] };
             }),
           })),

@@ -44,20 +44,25 @@ export function buildStructContext(
   platform: Platform = DEFAULT_PLATFORM
 ): StructContext {
   const layout = computeLayout(model, platform);
-  const modelById = new Map(model.fields.map((f) => [f.id, f]));
-
-  const fields: ContextField[] = layout.fields.map((fl) => {
-    const mf = modelById.get(fl.fieldId);
-    return {
-      name: fl.name,
-      type: fl.type,
-      arrayLength: mf?.arrayLength ?? 1,
-      offset: fl.offset,
-      size: fl.size,
-      paddingBefore: fl.paddingBefore,
-      bitFields: mf ? toContextBits(mf) : undefined,
-    };
-  });
+  const collectFields = (current: StructModel, prefix = ""): ContextField[] => {
+    const currentLayout = computeLayout(current, platform);
+    return current.fields.flatMap((field, index) => {
+      const fl = currentLayout.fields[index];
+      const path = prefix ? `${prefix}.${field.name}` : field.name;
+      const own: ContextField = {
+        name: field.name,
+        path,
+        type: field.type,
+        arrayLength: field.arrayLength,
+        offset: fl.offset,
+        size: fl.size,
+        paddingBefore: fl.paddingBefore,
+        bitFields: toContextBits(field),
+      };
+      return field.nested ? [own, ...collectFields(field.nested, path)] : [own];
+    });
+  };
+  const fields = collectFields(model);
 
   let comparison: StructContext["comparison"] = null;
   if (cmp.fromModel && cmp.toModel && cmp.fromValue !== cmp.toValue) {

@@ -13,6 +13,52 @@ export interface ChatMessage {
   content: string;
 }
 
+export interface AddBitFieldAction {
+  type: "add_bit_field";
+  fieldName: string;
+  name: string;
+  wordIndex: number;
+  startBit: number;
+  width: number;
+  kind: "flag" | "uint" | "int" | "enum";
+}
+
+export interface RenameBitFieldAction {
+  type: "rename_bit_field";
+  fieldName: string;
+  bitName: string;
+  newName: string;
+}
+
+export interface MoveBitFieldAction {
+  type: "move_bit_field";
+  fieldName: string;
+  bitName: string;
+  wordIndex: number;
+  startBit: number;
+  width: number;
+}
+
+export interface RemoveBitFieldAction {
+  type: "remove_bit_field";
+  fieldName: string;
+  bitName: string;
+}
+
+export interface SetBitMeaningsAction {
+  type: "set_bit_meanings";
+  fieldName: string;
+  bitName: string;
+  meanings: { value: number; label: string }[];
+}
+
+export type AiAction =
+  | AddBitFieldAction
+  | RenameBitFieldAction
+  | MoveBitFieldAction
+  | RemoveBitFieldAction
+  | SetBitMeaningsAction;
+
 /** A semantic bit range defined on an unsigned-integer field (Status Bits). */
 export interface ContextBitField {
   name: string;
@@ -31,6 +77,8 @@ export interface ContextBitField {
 /** A field as the assistant sees it (already computed by the engine). */
 export interface ContextField {
   name: string;
+  /** Dot-separated path; differs from name for nested fields (e.g. position.flags). */
+  path?: string;
   type: string;
   arrayLength: number;
   offset: number;
@@ -84,4 +132,6 @@ export interface AiResponse {
   text: string;
   /** Whether this came from the live model or the deterministic mock. */
   mode: "mock" | "live";
+  /** Optional editor proposal. The client validates it again and waits for Apply. */
+  action?: AiAction;
 }

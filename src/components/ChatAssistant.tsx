@@ -5,6 +5,8 @@ import { useStructStore, resolveComparison } from "@/store/useStructStore";
 import { askAI } from "@/lib/ai/client";
 import { buildStructContext } from "@/lib/ai/context";
 import type { ChatMessage } from "@/lib/ai/types";
+import type { AiAction } from "@/lib/ai/types";
+import { findModelField, validateAiAction } from "@/lib/ai/actions";
 import Button from "@/components/ui/Button";
 import { SparklesIcon, CloseIcon, SendIcon } from "@/components/ui/icons";
 
@@ -15,7 +17,11 @@ const SUGGESTIONS = [
   "How do I compare two versions?",
 ];
 
-type ChatEntry = ChatMessage;
+type ChatEntry = ChatMessage & {
+  action?: AiAction;
+  actionState?: "applied" | "cancelled";
+  actionError?: string;
+};
 
 export default function ChatAssistant() {
   const model = useStructStore((s) => s.currentModel);
@@ -51,6 +57,73 @@ export default function ChatAssistant() {
     inputRef.current?.focus();
   };
 
+  const applyAction = (messageIndex: number, action: AiAction) => {
+    const state = useStructStore.getState();
+    const error = validateAiAction(state.currentModel, action);
+    if (error) {
+      setMessages((current) =>
+        current.map((message, index) =>
+          index === messageIndex ? { ...message, actionError: error } : message
+        )
+      );
+      return;
+    }
+
+    const field = findModelField(state.currentModel, action.fieldName);
+    if (!field) return;
+    if (action.type === "add_bit_field") {
+      state.addBitField(field.id, {
+        name: action.name,
+        wordIndex: action.wordIndex,
+        startBit: action.startBit,
+        width: action.width,
+        kind: action.kind,
+      });
+    } else {
+      const bit = field.bitFields?.find((candidate) => candidate.name === action.bitName);
+      if (!bit) return;
+      switch (action.type) {
+        case "rename_bit_field":
+          state.updateBitField(field.id, bit.id, { name: action.newName });
+          break;
+        case "move_bit_field":
+          state.updateBitField(field.id, bit.id, {
+            wordIndex: action.wordIndex,
+            startBit: action.startBit,
+            width: action.width,
+          });
+          break;
+        case "remove_bit_field":
+          state.removeBitField(field.id, bit.id);
+          break;
+        case "set_bit_meanings": {
+          const merged = new Map((bit.meanings ?? []).map((meaning) => [meaning.value, meaning]));
+          for (const meaning of action.meanings) merged.set(meaning.value, meaning);
+          state.updateBitField(field.id, bit.id, {
+            meanings: [...merged.values()].sort((a, b) => a.value - b.value),
+          });
+          break;
+        }
+      }
+    }
+    state.setFocusedBitField(field.id);
+    setMessages((current) =>
+      current.map((message, index) =>
+        index === messageIndex
+          ? { ...message, actionState: "applied", actionError: undefined }
+          : message
+      )
+    );
+  };
+
+  const cancelAction = (messageIndex: number) => {
+    setMessages((current) =>
+      current.map((message, index) =>
+        index === messageIndex ? { ...message, actionState: "cancelled" } : message
+      )
+    );
+  };
+
   const send = async (raw?: string) => {
     const text = (raw ?? input).trim();
     if (!text || status === "loading") return;
@@ -68,7 +141,10 @@ export default function ChatAssistant() {
         content,
       }));
       const res = await askAI({ kind: "chat", payload: { messages: apiMessages, context } });
-      setMessages((m) => [...m, { role: "assistant", content: res.text }]);
+      setMessages((m) => [
+        ...m,
+        { role: "assistant", content: res.text, action: res.action },
+      ]);
       setMode(res.mode);
     } catch {
       setMessages((m) => [
@@ -167,15 +243,35 @@ export default function ChatAssistant() {
                   key={i}
                   className={`flex flex-col ${m.role === "user" ? "items-end" : "items-start"}`}
                 >
-                  <p
+                  <div
                     className={`max-w-[85%] whitespace-pre-wrap break-words rounded-lg px-3 py-2 text-sm leading-relaxed ${
                       m.role === "user"
                         ? "bg-accent text-accent-foreground"
                         : "border border-border bg-surface-muted text-foreground"
                     }`}
                   >
-                    {m.content}
-                  </p>
+                    <p>{m.content}</p>
+                    {m.action && !m.actionState && (
+                      <div className="mt-2 flex items-center gap-2 border-t border-border pt-2">
+                        <Button size="sm" variant="primary" onClick={() => applyAction(i, m.action!)}>
+                          Apply
+                        </Button>
+                        <Button size="sm" variant="secondary" onClick={() => cancelAction(i)}>
+                          Cancel
+                        </Button>
+                      </div>
+                    )}
+                    {m.actionState && (
+                      <p className="mt-2 border-t border-border pt-2 text-xs text-muted">
+                        {m.actionState === "applied" ? "Applied." : "Cancelled."}
+                      </p>
+                    )}
+                    {m.actionError && (
+                      <p className="mt-2 border-t border-danger/30 pt-2 text-xs text-danger">
+                        {m.actionError}
+                      </p>
+                    )}
+                  </div>
                 </div>
               ))
             )}

@@ -26,7 +26,9 @@ const SYSTEM_PROMPT =
   "and is authoritative — never recompute offsets, sizes, or padding, and never invent fields or " +
   "compatibility issues that aren't in the context. For how-to and \"where is…\" questions, use the " +
   "app guide below; don't invent buttons or features that aren't in it. If a question falls outside " +
-  "both the struct and the app, answer from general C++ knowledge and say so. No markdown headers or code fences.";
+  "both the struct and the app, answer from general C++ knowledge and say so. When the user asks to edit " +
+  "Status Bits, call exactly one provided editor function instead of claiming the change was applied. " +
+  "The app validates it and asks the user to Apply or Cancel. No markdown headers or code fences.";
 
 export function buildMessages(req: AiRequest): OpenAiMessage[] {
   switch (req.kind) {

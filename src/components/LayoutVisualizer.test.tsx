@@ -51,6 +51,17 @@ describe("<LayoutVisualizer mode='edit' />", () => {
     act(() => useStructStore.getState().setPlatform("x86-32"));
     expect(screen.getByText(/size 12 B/)).toBeTruthy();
   });
+
+  it("deletes a field directly from its block and keeps it undoable", () => {
+    render(<LayoutVisualizer mode="edit" />);
+    fireEvent.click(screen.getByRole("button", { name: "Delete field tag" }));
+    expect(useStructStore.getState().currentModel.fields.map((field) => field.name))
+      .toEqual(["id", "count"]);
+
+    act(() => useStructStore.getState().undo());
+    expect(useStructStore.getState().currentModel.fields.map((field) => field.name))
+      .toEqual(["tag", "id", "count"]);
+  });
 });
 
 describe("<LayoutVisualizer mode='compare' /> changed regions", () => {

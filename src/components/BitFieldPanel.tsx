@@ -259,6 +259,7 @@ function WordEditor({
   const addBitField = useStructStore((s) => s.addBitField);
   const updateBitField = useStructStore((s) => s.updateBitField);
   const moveBitField = useStructStore((s) => s.moveBitField);
+  const removeBitField = useStructStore((s) => s.removeBitField);
   const { cross, setCross, fieldsById } = useContext(CrossDragContext);
   const gridRef = useRef<HTMLDivElement>(null);
   const [interaction, setInteraction] = useState<Interaction | null>(null);
@@ -554,9 +555,23 @@ function WordEditor({
                       },
                     });
                   }}
-                  className="absolute inset-y-1 flex cursor-grab items-center justify-center overflow-hidden rounded-md px-2 text-[11px] font-semibold text-slate-950 shadow-sm active:cursor-grabbing"
-                  title={`${bit.name}: bit ${bit.startBit}–${bit.startBit + bit.width - 1}`}
-                >
+                   className="group absolute inset-y-1 flex cursor-grab items-center justify-center overflow-hidden rounded-md px-2 text-[11px] font-semibold text-slate-950 shadow-sm active:cursor-grabbing"
+                   title={`${bit.name}: bit ${bit.startBit}–${bit.startBit + bit.width - 1}`}
+                 >
+                  <button
+                    type="button"
+                    aria-label={`Delete Status Bit ${bit.name}`}
+                    title={`Delete ${bit.name} (Undo available)`}
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      removeBitField(field.id, bit.id);
+                      if (selectedId === bit.id) onSelect(null);
+                    }}
+                    className="pointer-events-none absolute right-0.5 top-0.5 z-10 grid h-4 w-4 place-items-center rounded bg-black/20 text-[12px] font-bold leading-none text-slate-950 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 hover:bg-danger hover:text-white focus-visible:pointer-events-auto focus-visible:opacity-100"
+                  >
+                    ×
+                  </button>
                   <button
                     aria-label={`Resize start of ${bit.name}`}
                     onPointerDown={(event) =>

@@ -602,6 +602,7 @@ function WrappedBand({
   selectedId = null,
   expandedNestedIds,
   onSelect,
+  onRemove,
 }: {
   layout: LayoutResult;
   rowBytes: number;
@@ -617,6 +618,8 @@ function WrappedBand({
   selectedId?: string | null;
   expandedNestedIds?: ReadonlySet<string>;
   onSelect?: (fieldId: string) => void;
+  /** Yalnızca canlı edit görünümünde alanı doğrudan siler. */
+  onRemove?: (fieldId: string) => void;
 }) {
   const segments = toSegments(layout);
   const rows = buildRows(segments, layout.totalSize, rowBytes);
@@ -749,7 +752,7 @@ function WrappedBand({
                     ? () => useStructStore.getState().setFocusedBitField(s.fieldId!)
                     : undefined;
               const chunkStyle = { width: pct(c.size), background: colorOf(s) };
-              const chunkClass = `relative flex shrink-0 flex-col items-center justify-center overflow-hidden border-r border-black/10 text-xs text-field-ink last:border-r-0 ${
+               const chunkClass = `group relative flex shrink-0 flex-col items-center justify-center overflow-hidden border-r border-black/10 text-xs text-field-ink last:border-r-0 ${
                 handleClick ? "cursor-pointer" : ""
               } ${severity ? RING_STYLES[severity] : ""} ${
                 dimmed
@@ -774,6 +777,21 @@ function WrappedBand({
                 .join("\n");
               const content = (
                 <>
+                  {onRemove && s.fieldId && c.isStart && (
+                    <button
+                      type="button"
+                      aria-label={`Delete field ${s.name}`}
+                      title={`Delete ${s.name} (Undo available)`}
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onRemove(s.fieldId!);
+                      }}
+                      className="pointer-events-none absolute right-0.5 top-0.5 z-10 grid h-4 w-4 place-items-center rounded bg-black/20 text-[12px] font-bold leading-none text-slate-950 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 hover:bg-danger hover:text-white focus-visible:pointer-events-auto focus-visible:opacity-100"
+                    >
+                      ×
+                    </button>
+                  )}
                   {impact && severity && c.isStart && (
                     <span
                       className={`absolute right-0.5 top-0.5 rounded border bg-white/90 px-1 text-[9px] font-bold leading-3 ${BADGE_STYLES[severity]}`}
@@ -1536,12 +1554,14 @@ function FieldBlock({
   open,
   onToggle,
   bg,
+  onRemove,
 }: {
   fl: FieldLayout;
   pxPerByte: number;
   open: boolean;
   onToggle: () => void;
   bg: string;
+  onRemove: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: fl.fieldId });
@@ -1561,9 +1581,22 @@ function FieldBlock({
       {...attributes}
       {...listeners}
       onClick={handleClick}
-      className="group flex shrink-0 cursor-grab active:cursor-grabbing"
+      className="group relative flex shrink-0 cursor-grab active:cursor-grabbing"
       title={title}
     >
+      <button
+        type="button"
+        aria-label={`Delete field ${fl.name}`}
+        title={`Delete ${fl.name} (Undo available)`}
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          event.stopPropagation();
+          onRemove();
+        }}
+        className="pointer-events-none absolute right-0.5 top-0.5 z-10 grid h-4 w-4 place-items-center rounded bg-black/20 text-[12px] font-bold leading-none text-slate-950 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 hover:bg-danger hover:text-white focus-visible:pointer-events-auto focus-visible:opacity-100"
+      >
+        ×
+      </button>
       <FieldCells
         fl={fl}
         pxPerByte={pxPerByte}
@@ -1585,17 +1618,32 @@ function StaticFieldBlock({
   open,
   onToggle,
   bg,
+  onRemove,
 }: {
   fl: FieldLayout;
   pxPerByte: number;
   open: boolean;
   onToggle: () => void;
   bg: string;
+  onRemove: () => void;
 }) {
   const { arrayLength, elementSize, expandable, isBitField, handleClick, title } =
     fieldBlockParts(fl, onToggle);
   return (
-    <div onClick={handleClick} className="group flex shrink-0 cursor-grab" title={title}>
+    <div onClick={handleClick} className="group relative flex shrink-0 cursor-grab" title={title}>
+      <button
+        type="button"
+        aria-label={`Delete field ${fl.name}`}
+        title={`Delete ${fl.name} (Undo available)`}
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          event.stopPropagation();
+          onRemove();
+        }}
+        className="pointer-events-none absolute right-0.5 top-0.5 z-10 grid h-4 w-4 place-items-center rounded bg-black/20 text-[12px] font-bold leading-none text-slate-950 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 hover:bg-danger hover:text-white focus-visible:pointer-events-auto focus-visible:opacity-100"
+      >
+        ×
+      </button>
       <FieldCells
         fl={fl}
         pxPerByte={pxPerByte}
@@ -1637,6 +1685,7 @@ function SortableBand({
 }) {
   const model = useStructStore((s) => s.currentModel);
   const reorderFields = useStructStore((s) => s.reorderFields);
+  const removeField = useStructStore((s) => s.removeField);
   const [open, setOpen] = useState<Record<string, boolean>>({});
 
   // dnd-kit SSR'da benzersiz erişilebilirlik id'leri üretir (DndDescribedBy-N) →
@@ -1675,6 +1724,7 @@ function SortableBand({
             open={!!open[fl.fieldId]}
             onToggle={() => setOpen((o) => ({ ...o, [fl.fieldId]: !o[fl.fieldId] }))}
             bg={colorMap[fl.fieldId]}
+            onRemove={() => removeField(fl.fieldId)}
           />
         </Fragment>
       ))}
@@ -2098,6 +2148,7 @@ export default function LayoutVisualizer({ mode = "edit" }: { mode?: Mode }) {
                         if (from >= 0 && to >= 0) reorderFields(from, to);
                       }
                 }
+                onRemove={(fieldId) => useStructStore.getState().removeField(fieldId)}
               />
             ) : previewVersion ? (
               <Band layout={layout} pxPerByte={autoPxPerByte} />

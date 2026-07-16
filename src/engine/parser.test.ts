@@ -264,15 +264,16 @@ describe("parseModelJson (JSON round-trip)", () => {
     expect(restored).toEqual(model);
   });
 
-  it("yeni .hpp export'u gömülü model İÇERMEZ; normal C++ olarak parse edilir", () => {
-    // Kayıpsız yol artık yalnızca JSON. .hpp çıktısı gömülü model taşımaz;
-    // geri import edilirse alanlar gelir ama bit SEMANTİĞİ (isim/anlam) gelmez.
+  it("yeni .hpp export'u tek satırlık kompakt metadata ile kayıpsız geri döner", () => {
     const out = exportCpp(model);
     expect(out).not.toContain("struct-memory-lab-model:");
-    const reparsed = parseCpp(out);
-    expect(reparsed.fields.map((f) => f.name)).toEqual(
-      model.fields.map((f) => f.name)
-    );
+    expect(out.match(/^\/\/ SML-META:v1:.+$/gm)).toHaveLength(1);
+    expect(parseCpp(out)).toEqual(model);
+  });
+
+  it("bozuk kompakt metadata normal C++ importunu engellemez", () => {
+    const parsed = parseCpp("struct P { uint32_t status; };\n// SML-META:v1:bozuk\n");
+    expect(parsed.fields[0].name).toBe("status");
   });
 
   it("ESKİ export'lardaki gömülü model satırı hâlâ tanınır (geri uyumluluk)", () => {

@@ -18,6 +18,7 @@ export default function ExportBox() {
   const [format, setFormat] = useState<Format>("cpp");
   const [comments, setComments] = useState(true);
   const [asserts, setAsserts] = useState(true);
+  const [losslessMetadata, setLosslessMetadata] = useState(true);
   const [copied, setCopied] = useState(false);
 
   const issues = validateStruct(model);
@@ -25,7 +26,7 @@ export default function ExportBox() {
 
   const isCpp = format === "cpp";
   const code = isCpp
-    ? exportCpp(model, { comments, asserts, platform })
+    ? exportCpp(model, { comments, asserts, losslessMetadata, platform })
     : exportModelJson(model, platform);
   const fileName = `${model.name.trim() || "Struct"}.${isCpp ? "hpp" : "json"}`;
   // C++ requires a valid struct; JSON is just the model, so it's always exportable.
@@ -123,14 +124,28 @@ export default function ExportBox() {
                 />
                 static_assert checks
               </label>
+              <label
+                className="flex cursor-pointer items-center gap-2 text-xs text-muted"
+                title="Embed one compact comment so this header re-imports without losing app-specific data"
+              >
+                <input
+                  type="checkbox"
+                  checked={losslessMetadata}
+                  onChange={(e) => setLosslessMetadata(e.target.checked)}
+                  className="accent-accent"
+                />
+                Lossless re-import
+              </label>
             </div>
           )}
         </div>
 
         <p className="mb-3 text-xs text-muted">
           {isCpp
-            ? "C++ headers are intended for generated code. Use JSON for a guaranteed lossless re-import."
-            : "JSON preserves the complete editable model for a lossless re-import."
+            ? losslessMetadata
+              ? "Includes one compact metadata comment for a lossless re-import."
+              : "Exports a clean C++ header; app-specific metadata will not be restored."
+            : "Preserves the complete editable model for a lossless re-import."
           }
         </p>
 

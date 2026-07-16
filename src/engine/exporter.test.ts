@@ -207,7 +207,7 @@ describe("exportCpp — nested structs & bit-fields (merged features)", () => {
   });
 });
 
-describe("exportCpp — asserts toggle & no embedded model", () => {
+describe("exportCpp — asserts toggle & compact metadata", () => {
   const model = struct("Player", [
     { id: "1", name: "id", type: "uint32_t", arrayLength: 1 },
   ]);
@@ -223,7 +223,12 @@ describe("exportCpp — asserts toggle & no embedded model", () => {
     expect(exportCpp(model)).toContain("static_assert(sizeof(Player)");
   });
 
-  it("no longer embeds the machine-readable model line (JSON is the lossless path)", () => {
+  it("embeds one compact metadata comment instead of the legacy model JSON", () => {
     expect(exportCpp(model)).not.toContain("struct-memory-lab-model:");
+    expect(exportCpp(model).match(/^\/\/ SML-META:v1:.+$/gm)).toHaveLength(1);
+  });
+
+  it("{ losslessMetadata: false } emits a clean header without metadata", () => {
+    expect(exportCpp(model, { losslessMetadata: false })).not.toContain("SML-META:");
   });
 });

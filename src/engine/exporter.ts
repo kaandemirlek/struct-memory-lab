@@ -6,14 +6,15 @@
 // (opsiyonel) ABI kilidi static_assert'lerini içerir; opsiyonel olarak alan
 // başına offset/size yorumları eklenir.
 //
-// NOT: Kayıpsız (Status Bits dahil) geri yükleme JSON formatıyla yapılır;
-// .hpp çıktısı insan/derleyici içindir, model verisi gömülmez.
+// C++'tan türetilemeyen uygulama metadata'sı, kayıpsız geri import için header'ın
+// sonunda tek ve kompakt bir yorum satırında taşınır.
 // ============================================================================
 
 import type { CppPrimitive, Field, Platform, StructModel } from "@/types";
 import { DEFAULT_PLATFORM } from "@/types";
 import { isUnsignedInt } from "@/engine/bitfields";
 import { computeLayout } from "@/engine/layout";
+import { COMPACT_EMBED_MARKER, encodeCompactMetadata } from "@/engine/embed";
 
 /** C++ .hpp dışa aktarımı için seçenekler. */
 export interface ExportCppOptions {
@@ -21,6 +22,8 @@ export interface ExportCppOptions {
   comments?: boolean;
   /** sizeof/offsetof static_assert blokları (ABI kilidi) ekle (varsayılan: true). */
   asserts?: boolean;
+  /** Kayıpsız geri import için tek satırlık kompakt metadata ekle (varsayılan: true). */
+  losslessMetadata?: boolean;
   /** Offset/size yorumları ve static_assert'ler bu platforma göre hesaplanır. */
   platform?: Platform;
 }
@@ -207,6 +210,7 @@ function collectNested(
 export function exportCpp(model: StructModel, options: ExportCppOptions = {}): string {
   const withComments = options.comments ?? true;
   const withAsserts = options.asserts ?? true;
+  const withLosslessMetadata = options.losslessMetadata ?? true;
   const platform = options.platform ?? DEFAULT_PLATFORM;
   const out: string[] = ["#pragma once"];
 
@@ -244,6 +248,10 @@ export function exportCpp(model: StructModel, options: ExportCppOptions = {}): s
       "",
       `// sizeof = ${layout.totalSize} bytes, alignment = ${layout.alignment} bytes, padding = ${layout.totalPadding} bytes (${platform})`
     );
+  }
+
+  if (withLosslessMetadata) {
+    out.push("", `${COMPACT_EMBED_MARKER}${encodeCompactMetadata(model)}`);
   }
 
   return out.join("\n") + "\n";

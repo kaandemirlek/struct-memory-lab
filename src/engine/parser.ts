@@ -28,7 +28,13 @@ import type {
 } from "@/types";
 import { TYPE_INFO } from "@/types";
 import { makeId } from "@/store/useStructStore";
-import { EMBED_MARKER } from "@/engine/embed";
+import {
+  COMPACT_EMBED_MARKER,
+  LEGACY_EMBED_MARKER,
+  decodeCompactMetadata,
+  expandCompactBit,
+  type CompactField,
+} from "@/engine/embed";
 
 // Bir string geçerli bir CppPrimitive mi? (TYPE_INFO'yu güvenlik kapısı yapıyoruz.)
 const isPrimitive = (t: string): t is CppPrimitive => t in TYPE_INFO;
@@ -290,14 +296,47 @@ function parseBody(body: string, ctx: ParseContext): Field[] {
 function extractEmbeddedModel(code: string): StructModel | null {
   for (const line of code.split(/\r?\n/)) {
     const t = line.trimStart();
-    if (!t.startsWith(EMBED_MARKER)) continue;
+    if (!t.startsWith(LEGACY_EMBED_MARKER)) continue;
     try {
-      return normalizeModel(JSON.parse(t.slice(EMBED_MARKER.length).trim()) as Partial<StructModel>);
+      return normalizeModel(JSON.parse(t.slice(LEGACY_EMBED_MARKER.length).trim()) as Partial<StructModel>);
     } catch {
       return null;
     }
   }
   return null;
+}
+
+function extractCompactMetadata(code: string): CompactField[] | null {
+  for (const line of code.split(/\r?\n/)) {
+    const trimmed = line.trimStart();
+    if (!trimmed.startsWith(COMPACT_EMBED_MARKER)) continue;
+    return decodeCompactMetadata(trimmed.slice(COMPACT_EMBED_MARKER.length).trim());
+  }
+  return null;
+}
+
+function applyCompactMetadata(model: StructModel, metadata: CompactField[]): StructModel {
+  if (metadata.length !== model.fields.length) return model;
+
+  const fields = model.fields.map((field, index) => {
+    const entry = metadata[index];
+    if (!Array.isArray(entry) || typeof entry[0] !== "string" || !entry[0]) return field;
+
+    const restored: Field = { ...field, id: entry[0] };
+    if (Array.isArray(entry[1])) {
+      const bits = entry[1]
+        .map(expandCompactBit)
+        .filter((bit): bit is Partial<BitField> => bit !== null)
+        .map(normalizeBitField);
+      if (bits.length > 0) restored.bitFields = bits;
+    }
+    if (restored.nested && Array.isArray(entry[2])) {
+      restored.nested = applyCompactMetadata(restored.nested, entry[2]);
+    }
+    return restored;
+  });
+
+  return { ...model, fields };
 }
 
 // #pragma pack argümanlarını mevcut duruma uygular; yeni pack değerini döndürür.
@@ -332,6 +371,7 @@ export const parseCpp: ParseCpp = (code) => {
   // (geri uyumluluk). Yeni export'lar ve elle yazılmış header'lar normal parse edilir.
   const embedded = extractEmbeddedModel(code);
   if (embedded) return embedded;
+  const compactMetadata = extractCompactMetadata(code);
 
   const clean = stripComments(code);
   const ctx: ParseContext = {
@@ -378,13 +418,12 @@ export const parseCpp: ParseCpp = (code) => {
   if (!last) {
     throw new Error('No valid struct found. Example: "struct Name { ... };"');
   }
-  return last;
+  return compactMetadata ? applyCompactMetadata(last, compactMetadata) : last;
 };
 
 // ============================================================================
 // JSON import — exportModelJson çıktısını KAYIPSIZ geri yükler.
-// C++ .hpp round-trip'i bit-alanı SEMANTİĞİNİ (isim/anlam/kind) taşıyamaz; bu
-// yüzden status bits'in de birebir dönmesi için JSON formatı kullanılır.
+// JSON import, tam export objesini veya ham StructModel'i kayıpsız geri yükler.
 // ============================================================================
 
 // Ham (untrusted) tip değerini doğrular; geçersizse anlaşılır hata verir.

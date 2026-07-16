@@ -40,7 +40,7 @@ export const HOWTOS: HowTo[] = [
   {
     keywords: ["import", "paste a struct", "paste struct", "load a struct", "load struct", "open a header", "upload"],
     answer:
-      'Click "Import" in the top header. Paste a C++ header (.h/.hpp) or a JSON model into the box — or use "Upload file" — then click "Parse struct". Headers exported from this tool re-import losslessly, including Status Bits.',
+      'Click "Import" in the top header. Paste a C++ header (.h/.hpp) or a JSON model into the box — or use "Upload file" — then click "Parse struct". Headers exported from this tool include one compact metadata comment and re-import losslessly, including Status Bits.',
   },
   {
     keywords: ["export", "download", "save as", "generate a header", "generate header", "get the .hpp", ".hpp", "produce a header"],
@@ -133,4 +133,4 @@ Middle: two tabs. "Edit Layout" shows the Memory Layout (proportional colored by
 
 Right sidebar (collapsible): "Save version" snapshots the struct; click a snapshot to preview it read-only; rename/delete it; a link icon copies a shareable permalink (struct encoded in the URL). In Compare mode, left-click a version to set From, right-click to set To.
 
-Import (header): paste a C++ header or JSON, or upload a file, then "Parse struct". Supports nested structs, arrays, #pragma pack(N), native bit-fields (uint32_t f:3), enums, and typedef/using. Export (header): C++ .hpp (offset comments + static_assert locks + an embedded model for lossless re-import), JSON, or a Markdown diff report. Work autosaves to the browser.`;
+Import (header): paste a C++ header or JSON, or upload a file, then "Parse struct". Supports nested structs, arrays, #pragma pack(N), native bit-fields (uint32_t f:3), enums, and typedef/using. Export (header): C++ .hpp (offset comments + static_assert locks + one compact metadata comment for lossless re-import), JSON, or a Markdown diff report. Work autosaves to the browser.`;
